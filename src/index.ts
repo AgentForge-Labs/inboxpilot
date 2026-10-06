@@ -19,3 +19,7 @@ export * from "./providers/imap/imap-types.js";
 export * from "./providers/imap/imap-client.js";
 export * from "./providers/imap/imap-normalizer.js";
 export * from "./providers/imap/imap-adapter.js";
+export * from "./providers/jmap/jmap-types.js";
+export * from "./providers/jmap/jmap-client.js";
+export * from "./providers/jmap/jmap-normalizer.js";
+export * from "./providers/jmap/jmap-adapter.js";
