@@ -57,3 +57,4 @@ export * from "./backfill/backfill-progress.js";
 export * from "./backfill/backfill-service.js";
 export * from "./classifier/classifier-contract.js";
 export * from "./classifier/classifier-schema.js";
+export * from "./classifier/importance-engine.js";
