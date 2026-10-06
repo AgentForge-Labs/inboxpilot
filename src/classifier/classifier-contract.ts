@@ -2,6 +2,11 @@ import type {
   ClassificationState,
   PriorityBand,
 } from "../domain/email-model.js";
+import {
+  DEFAULT_IMPORTANCE_SETTINGS,
+  priorityForScoreWithSettings,
+  type ImportanceSettings,
+} from "../settings/importance-settings.js";
 
 export const CLASSIFIER_CONTRACT_VERSION = 1 as const;
 
@@ -197,14 +202,10 @@ function optionalDays(
 
 export function priorityForImportanceScore(
   score: number,
+  settings: ImportanceSettings = DEFAULT_IMPORTANCE_SETTINGS,
 ): PriorityBand {
   integerScore(score, "importanceScore");
-  if (score >= 90) return "critical";
-  if (score >= 75) return "important";
-  if (score >= 50) return "normal";
-  if (score >= 30) return "low";
-  if (score >= 10) return "very_low";
-  return "disposable";
+  return priorityForScoreWithSettings(score, settings);
 }
 
 function parseCategories(value: unknown): ClassifierCategory[] {

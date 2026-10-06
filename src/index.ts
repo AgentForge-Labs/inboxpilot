@@ -68,3 +68,7 @@ export * from "./learning/personal-learning-engine.js";
 export * from "./learning/personalization.js";
 export * from "./policy/policy-types.js";
 export * from "./policy/policy-engine.js";
+export * from "./settings/importance-settings.js";
+export * from "./settings/importance-settings-store.js";
+export * from "./dashboard/importance-band-editor.js";
+export * from "./dashboard/importance-settings-service.js";

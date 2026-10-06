@@ -6,6 +6,7 @@ import type {
   ClassifierCategory,
 } from "../classifier/classifier-contract.js";
 import type { PersonalLearningEvaluation } from "../learning/learning-types.js";
+import type { ImportanceSettings } from "../settings/importance-settings.js";
 
 export interface PolicyThresholds {
   importantAtOrAbove: number;
@@ -41,6 +42,7 @@ export interface PolicyEngineInput {
   classification: CanonicalClassifierResult;
   providerCapabilities: ProviderCapabilities;
   planCapabilities: PolicyPlanCapabilities;
+  importanceSettings?: ImportanceSettings;
   thresholds?: Partial<PolicyThresholds>;
   overrides?: readonly PolicyOverride[];
   protectedCategories?: readonly ClassifierCategory[];
