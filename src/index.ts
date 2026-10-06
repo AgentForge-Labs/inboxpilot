@@ -28,3 +28,7 @@ export * from "./providers/local/local-fs.js";
 export * from "./providers/local/local-normalizer.js";
 export * from "./providers/local/maildir-adapter.js";
 export * from "./providers/local/mbox-adapter.js";
+export * from "./actions/action-types.js";
+export * from "./actions/action-store.js";
+export * from "./actions/error-classifier.js";
+export * from "./actions/action-executor.js";
