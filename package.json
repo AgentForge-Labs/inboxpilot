@@ -8,7 +8,12 @@
     "build": "tsc -p tsconfig.json",
     "test": "npm run build && node --test dist/test/*.test.js"
   },
+  "dependencies": {
+    "imapflow": "^1.0.194",
+    "mailparser": "^3.7.4"
+  },
   "devDependencies": {
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^24.0.0",
     "typescript": "^5.9.0"
   }
