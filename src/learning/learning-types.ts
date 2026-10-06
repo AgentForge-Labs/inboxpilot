@@ -6,6 +6,7 @@ export type LearningEventType =
   | "explicit_important"
   | "explicit_not_important"
   | "always_archive_sender"
+  | "never_delete_sender"
   | "never_delete_domain"
   | "manual_mark_important"
   | "manual_mark_not_important"

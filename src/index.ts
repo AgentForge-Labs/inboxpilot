@@ -89,3 +89,6 @@ export * from "./automation/shadow-mode-service.js";
 export * from "./automation/shadow-mode-policy.js";
 export * from "./automation/shadow-mode-retention.js";
 export * from "./dashboard/shadow-mode-dashboard.js";
+export * from "./pending-delete/pending-delete-types.js";
+export * from "./pending-delete/pending-delete-service.js";
+export * from "./dashboard/pending-delete-dashboard.js";

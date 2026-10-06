@@ -81,6 +81,24 @@ export class InMemoryRetentionJobStore
       .map((job) => structuredClone(job));
   }
 
+  async listForAccount(
+    tenantId: string,
+    accountId: string,
+  ): Promise<RetentionJob[]> {
+    return [...this.jobs.values()]
+      .filter(
+        (job) =>
+          job.tenantId === tenantId &&
+          job.accountId === accountId,
+      )
+      .map((job) => structuredClone(job))
+      .sort((a, b) =>
+        (a.nextRunAt ?? a.updatedAt).localeCompare(
+          b.nextRunAt ?? b.updatedAt,
+        ),
+      );
+  }
+
   async update(
     jobId: string,
     expectedVersion: number,

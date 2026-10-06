@@ -252,6 +252,108 @@ export class RetentionScheduler {
     );
   }
 
+  async runNow(
+    jobId: string,
+    actorId: string,
+    userConfirmationId: string,
+  ): Promise<RetentionRunResult> {
+    const actor = actorId.trim();
+    const confirmation = userConfirmationId.trim();
+    if (!actor || !confirmation) {
+      throw new TypeError(
+        "Delete now requires actorId and userConfirmationId",
+      );
+    }
+
+    let job = await this.requireJob(jobId);
+    if (
+      job.status !== "scheduled" ||
+      (job.nextAction !== "trash" &&
+        job.nextAction !== "delete_permanent")
+    ) {
+      throw new Error(
+        "Delete now is only available for a scheduled destructive retention stage",
+      );
+    }
+
+    const now = this.now().toISOString();
+    await this.audit(job, {
+      event: "expedited_by_user",
+      action: job.nextAction,
+      actorId: actor,
+      userConfirmationId: confirmation,
+      timestamp: now,
+    });
+
+    if (
+      job.nextRunAt &&
+      Date.parse(job.nextRunAt) > Date.parse(now)
+    ) {
+      job = await this.jobs.update(
+        job.id,
+        job.version,
+        (current) => ({
+          ...current,
+          nextRunAt: now,
+          updatedAt: now,
+        }),
+      );
+    }
+
+    return this.run(job.id);
+  }
+
+  async cancelPendingDeletion(
+    jobId: string,
+    actorId: string,
+    reason = "User kept message from Pending Delete review",
+  ): Promise<RetentionJob> {
+    const actor = actorId.trim();
+    if (!actor) throw new TypeError("actorId is required");
+
+    const job = await this.requireJob(jobId);
+    if (
+      ["cancelled", "completed", "failed"].includes(job.status)
+    ) {
+      return job;
+    }
+
+    const now = this.now().toISOString();
+    const cancelled = await this.jobs.update(
+      job.id,
+      job.version,
+      (current) => {
+        const {
+          nextAction: _nextAction,
+          nextRunAt: _nextRunAt,
+          ...rest
+        } = current;
+        return {
+          ...rest,
+          status: "cancelled",
+          cancelledAt: now,
+          blockedReason: reason,
+          updatedAt: now,
+        };
+      },
+    );
+    const currentMessage = await this.messages.get(
+      cancelled.tenantId,
+      cancelled.accountId,
+      cancelled.providerMessageId,
+    );
+    await this.audit(cancelled, {
+      event: "review_cancelled",
+      ...(currentMessage
+        ? { retentionStage: currentMessage.retention.stage }
+        : {}),
+      policyReason: reason,
+      actorId: actor,
+      timestamp: now,
+    });
+    return cancelled;
+  }
+
   async cancelOnRestore(
     tenantId: string,
     accountId: string,
