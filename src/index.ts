@@ -72,3 +72,8 @@ export * from "./settings/importance-settings.js";
 export * from "./settings/importance-settings-store.js";
 export * from "./dashboard/importance-band-editor.js";
 export * from "./dashboard/importance-settings-service.js";
+export * from "./retention/retention-types.js";
+export * from "./retention/trash-semantics.js";
+export * from "./retention/retention-store.js";
+export * from "./retention/retention-plan.js";
+export * from "./retention/retention-scheduler.js";
