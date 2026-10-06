@@ -6,6 +6,10 @@ import {
   type MailboxActionPlan,
 } from "../actions/action-types.js";
 import type { ProviderCapabilityName } from "../providers/provider-adapter.js";
+import {
+  DEFAULT_IMPORTANCE_SETTINGS,
+  policyThresholdsFromImportanceSettings,
+} from "../settings/importance-settings.js";
 import type {
   PolicyDecision,
   PolicyDecisionReason,
@@ -15,12 +19,11 @@ import type {
 } from "./policy-types.js";
 
 export const DEFAULT_POLICY_THRESHOLDS: Readonly<PolicyThresholds> =
-  Object.freeze({
-    importantAtOrAbove: 75,
-    archiveBelow: 45,
-    trashBelow: 20,
-    minClassifierConfidence: 0.8,
-  });
+  Object.freeze(
+    policyThresholdsFromImportanceSettings(
+      DEFAULT_IMPORTANCE_SETTINGS,
+    ),
+  );
 
 export const DEFAULT_PROTECTED_CATEGORIES = Object.freeze([
   "finance",
@@ -51,11 +54,16 @@ function clampScore(value: number): number {
 }
 
 function resolveThresholds(
-  partial: PolicyEngineInput["thresholds"],
+  input: PolicyEngineInput,
 ): PolicyThresholds {
+  const base = input.importanceSettings
+    ? policyThresholdsFromImportanceSettings(
+        input.importanceSettings,
+      )
+    : DEFAULT_POLICY_THRESHOLDS;
   const value = {
-    ...DEFAULT_POLICY_THRESHOLDS,
-    ...partial,
+    ...base,
+    ...input.thresholds,
   };
 
   for (const [field, threshold] of [
@@ -334,7 +342,7 @@ export class MailboxPolicyEngine {
       throw new TypeError("policyId is required");
     }
 
-    const thresholds = resolveThresholds(input.thresholds);
+    const thresholds = resolveThresholds(input);
     const effectiveScore = clampScore(
       input.classification.importanceScore +
         (input.personal?.importanceDelta ?? 0),
