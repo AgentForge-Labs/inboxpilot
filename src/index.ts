@@ -10,3 +10,8 @@ export * from "./providers/gmail/gmail-oauth.js";
 export * from "./providers/gmail/gmail-api-client.js";
 export * from "./providers/gmail/gmail-normalizer.js";
 export * from "./providers/gmail/gmail-adapter.js";
+export * from "./providers/microsoft-graph/graph-types.js";
+export * from "./providers/microsoft-graph/graph-oauth.js";
+export * from "./providers/microsoft-graph/graph-api-client.js";
+export * from "./providers/microsoft-graph/graph-normalizer.js";
+export * from "./providers/microsoft-graph/graph-adapter.js";
