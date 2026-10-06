@@ -15,3 +15,7 @@ export * from "./providers/microsoft-graph/graph-oauth.js";
 export * from "./providers/microsoft-graph/graph-api-client.js";
 export * from "./providers/microsoft-graph/graph-normalizer.js";
 export * from "./providers/microsoft-graph/graph-adapter.js";
+export * from "./providers/imap/imap-types.js";
+export * from "./providers/imap/imap-client.js";
+export * from "./providers/imap/imap-normalizer.js";
+export * from "./providers/imap/imap-adapter.js";
