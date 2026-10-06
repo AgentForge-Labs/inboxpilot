@@ -58,3 +58,7 @@ export * from "./backfill/backfill-service.js";
 export * from "./classifier/classifier-contract.js";
 export * from "./classifier/classifier-schema.js";
 export * from "./classifier/importance-engine.js";
+export * from "./classifier/semantic-types.js";
+export * from "./classifier/semantic-prompt.js";
+export * from "./classifier/semantic-store.js";
+export * from "./classifier/semantic-classifier.js";
