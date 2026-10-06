@@ -50,3 +50,8 @@ export * from "./ingestion/signals.js";
 export * from "./ingestion/ingestion-pipeline.js";
 export * from "./ingestion/reconciliation.js";
 export * from "./ingestion/wakeup-sources.js";
+export * from "./backfill/backfill-types.js";
+export * from "./backfill/backfill-store.js";
+export * from "./backfill/provider-backfill-source.js";
+export * from "./backfill/backfill-progress.js";
+export * from "./backfill/backfill-service.js";
