@@ -10,6 +10,9 @@ import {
   DEFAULT_IMPORTANCE_SETTINGS,
   policyThresholdsFromImportanceSettings,
 } from "../settings/importance-settings.js";
+import {
+  DEFAULT_NEVER_AUTO_DELETE_CATEGORIES,
+} from "../safeguards/never-auto-delete.js";
 import type {
   PolicyDecision,
   PolicyDecisionReason,
@@ -25,16 +28,8 @@ export const DEFAULT_POLICY_THRESHOLDS: Readonly<PolicyThresholds> =
     ),
   );
 
-export const DEFAULT_PROTECTED_CATEGORIES = Object.freeze([
-  "finance",
-  "invoice",
-  "receipt",
-  "security",
-  "legal",
-  "government",
-  "appointment",
-  "travel",
-] as const);
+export const DEFAULT_PROTECTED_CATEGORIES =
+  DEFAULT_NEVER_AUTO_DELETE_CATEGORIES;
 
 function normalizeAddress(value: string | undefined): string | undefined {
   const normalized = value?.trim().toLowerCase();
@@ -364,20 +359,29 @@ export class MailboxPolicyEngine {
       input.protectedCategories ?? DEFAULT_PROTECTED_CATEGORIES,
     );
     const categoryProtected =
+      (input.protectedCategories !== undefined ||
+        input.neverAutoDelete === undefined) &&
       input.classification.categories.some((category) =>
         protectedCategories.has(category),
       );
+    const safeguardProtected =
+      input.neverAutoDelete?.protected ?? false;
     const retentionProtected =
       input.message.retention.protected ||
       input.classification.retention.protected;
-    const hardProtected = retentionProtected || categoryProtected;
+    const hardProtected =
+      retentionProtected ||
+      safeguardProtected ||
+      categoryProtected;
     const matchedOverride = findOverride(input);
 
     if (hardProtected) {
       const safetyReason: PolicyDecisionReason =
         retentionProtected
           ? "retention_protected"
-          : "protected_category";
+          : safeguardProtected
+            ? "never_auto_delete_safeguard"
+            : "protected_category";
 
       if (
         effectiveScore >= thresholds.importantAtOrAbove &&
