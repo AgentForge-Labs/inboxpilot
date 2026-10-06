@@ -75,12 +75,16 @@ export interface RetentionAuditEvent {
     | "policy_blocked"
     | "provider_managed"
     | "restore_cancelled"
+    | "review_cancelled"
+    | "expedited_by_user"
     | "failed"
     | "completed";
   action?: RetentionNextAction;
   retentionStage?: RetentionState["stage"];
   policyReason?: string;
   providerTrashBehavior?: ProviderTrashBehavior;
+  actorId?: string;
+  userConfirmationId?: string;
   timestamp: string;
 }
 
@@ -93,6 +97,10 @@ export interface RetentionJobStore {
     providerMessageId: string,
   ): Promise<RetentionJob | undefined>;
   listDue(now: string, limit: number): Promise<RetentionJob[]>;
+  listForAccount(
+    tenantId: string,
+    accountId: string,
+  ): Promise<RetentionJob[]>;
   update(
     jobId: string,
     expectedVersion: number,

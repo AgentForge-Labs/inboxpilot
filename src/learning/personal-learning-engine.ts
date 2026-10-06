@@ -127,6 +127,20 @@ function compileFeatures(
       continue;
     }
 
+    if (event.type === "never_delete_sender" && sender) {
+      explicit.set(featureKey("never_delete", "sender", sender), {
+        kind: "never_delete",
+        scope: "sender",
+        key: sender,
+        confidence: 1,
+        evidenceCount: 1,
+        explicit: true,
+        reason: "User explicitly said to never delete this sender",
+        updatedAt: event.occurredAt,
+      });
+      continue;
+    }
+
     if (event.type === "never_delete_domain" && domain) {
       explicit.set(featureKey("never_delete", "domain", domain), {
         kind: "never_delete",
