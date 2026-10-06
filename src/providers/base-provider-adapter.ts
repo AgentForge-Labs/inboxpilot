@@ -49,6 +49,10 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
     }
   }
 
+  protected setDisconnected(): void {
+    this.connected = false;
+  }
+
   protected assertCapability(capability: ProviderCapabilityName): void {
     if (!this.capabilities()[capability]) {
       throw new ProviderCapabilityError(this.kind, capability);
@@ -108,6 +112,12 @@ export abstract class BaseProviderAdapter implements ProviderAdapter {
     this.assertConnected();
     this.assertCapability("trash");
     return this.unsupported("trash");
+  }
+
+  async restore(_providerMessageId: string): Promise<void> {
+    this.assertConnected();
+    this.assertCapability("restore");
+    return this.unsupported("restore");
   }
 
   async deletePermanent(_providerMessageId: string): Promise<void> {
