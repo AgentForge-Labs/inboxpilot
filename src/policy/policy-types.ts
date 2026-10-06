@@ -7,6 +7,7 @@ import type {
 } from "../classifier/classifier-contract.js";
 import type { PersonalLearningEvaluation } from "../learning/learning-types.js";
 import type { ImportanceSettings } from "../settings/importance-settings.js";
+import type { NeverAutoDeleteEvaluation } from "../safeguards/safeguard-types.js";
 
 export interface PolicyThresholds {
   importantAtOrAbove: number;
@@ -46,6 +47,7 @@ export interface PolicyEngineInput {
   thresholds?: Partial<PolicyThresholds>;
   overrides?: readonly PolicyOverride[];
   protectedCategories?: readonly ClassifierCategory[];
+  neverAutoDelete?: NeverAutoDeleteEvaluation;
   personal?: PersonalLearningEvaluation;
 }
 
@@ -59,6 +61,7 @@ export type PolicyDecisionReason =
   | "message_already_terminal"
   | "retention_protected"
   | "protected_category"
+  | "never_auto_delete_safeguard"
   | "classifier_requests_review"
   | "low_classifier_confidence"
   | "override_keep"
