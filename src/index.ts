@@ -5,3 +5,8 @@ export * from "./providers/provider-adapter.js";
 export * from "./providers/provider-errors.js";
 export * from "./providers/base-provider-adapter.js";
 export * from "./providers/capability-discovery.js";
+export * from "./providers/gmail/gmail-types.js";
+export * from "./providers/gmail/gmail-oauth.js";
+export * from "./providers/gmail/gmail-api-client.js";
+export * from "./providers/gmail/gmail-normalizer.js";
+export * from "./providers/gmail/gmail-adapter.js";

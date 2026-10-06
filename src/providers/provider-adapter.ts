@@ -14,6 +14,7 @@ export const PROVIDER_CAPABILITIES = [
   "archive",
   "move",
   "trash",
+  "restore",
   "deletePermanent",
   "addLabel",
   "removeLabel",
@@ -83,6 +84,7 @@ export interface ProviderAdapter {
   archive(providerMessageId: string): Promise<void>;
   move(providerMessageId: string, target: MessageMoveTarget): Promise<void>;
   trash(providerMessageId: string): Promise<void>;
+  restore(providerMessageId: string): Promise<void>;
   deletePermanent(providerMessageId: string): Promise<void>;
   addLabel(providerMessageId: string, labelId: string): Promise<void>;
   removeLabel(providerMessageId: string, labelId: string): Promise<void>;

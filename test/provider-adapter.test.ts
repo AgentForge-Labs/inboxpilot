@@ -36,7 +36,7 @@ test("capability map always advertises supported and unsupported features", () =
   assert.equal(caps.markRead, true);
   assert.equal(caps.archive, false);
   assert.equal(caps.deletePermanent, false);
-  assert.equal(Object.keys(caps).length, 14);
+  assert.equal(Object.keys(caps).length, 15);
 });
 
 test("capability discovery returns explicit supported and unsupported groups", () => {
