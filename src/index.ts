@@ -32,3 +32,8 @@ export * from "./actions/action-types.js";
 export * from "./actions/action-store.js";
 export * from "./actions/error-classifier.js";
 export * from "./actions/action-executor.js";
+export * from "./onboarding/onboarding-types.js";
+export * from "./onboarding/provider-autodiscovery.js";
+export * from "./onboarding/wizard.js";
+export * from "./onboarding/connection-health.js";
+export * from "./onboarding/onboarding-service.js";
