@@ -55,3 +55,5 @@ export * from "./backfill/backfill-store.js";
 export * from "./backfill/provider-backfill-source.js";
 export * from "./backfill/backfill-progress.js";
 export * from "./backfill/backfill-service.js";
+export * from "./classifier/classifier-contract.js";
+export * from "./classifier/classifier-schema.js";
