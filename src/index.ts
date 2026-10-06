@@ -62,3 +62,7 @@ export * from "./classifier/semantic-types.js";
 export * from "./classifier/semantic-prompt.js";
 export * from "./classifier/semantic-store.js";
 export * from "./classifier/semantic-classifier.js";
+export * from "./learning/learning-types.js";
+export * from "./learning/learning-store.js";
+export * from "./learning/personal-learning-engine.js";
+export * from "./learning/personalization.js";
