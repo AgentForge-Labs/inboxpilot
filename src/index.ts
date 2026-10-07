@@ -116,3 +116,5 @@ export * from "./mcp/hosted/hosted-mcp-tools.js";
 export * from "./mcp/hosted/hosted-mcp-server.js";
 export * from "./mcp/hosted/natural-language-rule-hosted-tool.js";
 export * from "./mcp/hosted/email-read-hosted-tools.js";
+
+export * from "./mcp/hosted/email-control-hosted-tools.js";
