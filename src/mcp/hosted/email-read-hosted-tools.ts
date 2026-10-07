@@ -229,6 +229,160 @@ async function accountMessages(
     .sort(newestFirst);
 }
 
+function optionalStringArray(
+  args: Readonly<Record<string, unknown>>,
+  name: string,
+): string[] | undefined {
+  const value = args[name];
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (entry) =>
+        typeof entry === "string" &&
+        Boolean(entry.trim()),
+    )
+  ) {
+    return invalid(name + " must be an array of non-empty strings");
+  }
+  const normalized = [
+    ...new Set(
+      value.map((entry) =>
+        (entry as string).trim().toLowerCase(),
+      ),
+    ),
+  ];
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function optionalIsoBoundary(
+  args: Readonly<Record<string, unknown>>,
+  name: string,
+): string | undefined {
+  const value = optionalString(args, name);
+  if (value === undefined) return undefined;
+  if (Number.isNaN(Date.parse(value))) {
+    return invalid(name + " must be an ISO-compatible timestamp");
+  }
+  return value;
+}
+
+function attentionLimitFrom(
+  args: Readonly<Record<string, unknown>>,
+): number {
+  const value = args.attentionLimit;
+  if (value === undefined) return 10;
+  if (
+    typeof value !== "number" ||
+    !Number.isInteger(value) ||
+    value < 1 ||
+    value > 50
+  ) {
+    return invalid(
+      "attentionLimit must be an integer between 1 and 50",
+    );
+  }
+  return value;
+}
+
+function summaryMessageView(message: CanonicalMessage) {
+  return {
+    id: message.id,
+    providerMessageId: message.provider.messageId,
+    threadId: message.threadId,
+    provider: message.provider.kind,
+    subject: message.subject,
+    ...(message.from ? { from: message.from } : {}),
+    receivedAt: message.receivedAt,
+    ...(message.classification.importanceScore !== undefined
+      ? {
+          importanceScore:
+            message.classification.importanceScore,
+        }
+      : {}),
+    ...(message.classification.priority
+      ? { priority: message.classification.priority }
+      : {}),
+    categories: [...message.classification.categories],
+    actionRequired:
+      message.classification.actionRequired === true,
+    replyRequired:
+      message.classification.replyRequired === true,
+    classificationStatus:
+      message.classification.status,
+    retentionStage: message.retention.stage,
+  };
+}
+
+function summaryMatchesFilters(
+  message: CanonicalMessage,
+  providers: readonly string[] | undefined,
+  categories: readonly string[] | undefined,
+  receivedFrom: string | undefined,
+  receivedTo: string | undefined,
+): boolean {
+  if (
+    providers &&
+    !providers.includes(message.provider.kind.toLowerCase())
+  ) {
+    return false;
+  }
+
+  if (categories) {
+    const messageCategories = new Set(
+      message.classification.categories.map((category) =>
+        category.trim().toLowerCase(),
+      ),
+    );
+    if (
+      !categories.some((category) =>
+        messageCategories.has(category),
+      )
+    ) {
+      return false;
+    }
+  }
+
+  const receivedAt = Date.parse(message.receivedAt);
+  if (
+    receivedFrom !== undefined &&
+    receivedAt < Date.parse(receivedFrom)
+  ) {
+    return false;
+  }
+  if (
+    receivedTo !== undefined &&
+    receivedAt > Date.parse(receivedTo)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function hasSummaryCategory(
+  message: CanonicalMessage,
+  ...categories: string[]
+): boolean {
+  const values = new Set(
+    message.classification.categories.map((category) =>
+      category.trim().toLowerCase(),
+    ),
+  );
+  return categories.some((category) =>
+    values.has(category),
+  );
+}
+
+function needsAttention(message: CanonicalMessage): boolean {
+  return (
+    message.classification.status === "needs_review" ||
+    message.classification.actionRequired === true ||
+    message.classification.replyRequired === true ||
+    message.classification.priority === "critical" ||
+    message.classification.priority === "important"
+  );
+}
+
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
@@ -362,6 +516,196 @@ export function createHostedEmailReadTools(
         query: query ?? null,
         count: matches.length,
         messages: matches,
+      };
+    },
+  };
+
+  const inboxSummary: HostedMcpTool = {
+    descriptor: {
+      name: "email_inbox_summary",
+      description:
+        "Summarize one authorized mailbox over an optional received-time window and optional provider/category filters. Returns priority/retention counts and metadata-only messages needing attention.",
+      inputSchema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          accountId: { type: "string" },
+          receivedFrom: { type: "string" },
+          receivedTo: { type: "string" },
+          providers: {
+            type: "array",
+            items: {
+              type: "string",
+              enum: [
+                "gmail",
+                "microsoft_graph",
+                "imap",
+                "jmap",
+                "maildir",
+                "mbox",
+                "other",
+              ],
+            },
+          },
+          categories: {
+            type: "array",
+            items: { type: "string" },
+          },
+          attentionLimit: {
+            type: "integer",
+            minimum: 1,
+            maximum: 50,
+            default: 10,
+          },
+        },
+        required: ["accountId"],
+      },
+      annotations: {
+        title: "Summarize Inbox",
+        ...READ_ONLY_ANNOTATIONS,
+      },
+    },
+    requiredScopes: ["mailbox:read"],
+    requiresAccount: true,
+    async execute(args, context) {
+      await findAccount(
+        source,
+        context.tenantId,
+        context.userId,
+        context.accountId!,
+      );
+
+      const providers = optionalStringArray(
+        args,
+        "providers",
+      );
+      const categories = optionalStringArray(
+        args,
+        "categories",
+      );
+      const receivedFrom = optionalIsoBoundary(
+        args,
+        "receivedFrom",
+      );
+      const receivedTo = optionalIsoBoundary(
+        args,
+        "receivedTo",
+      );
+      if (
+        receivedFrom !== undefined &&
+        receivedTo !== undefined &&
+        Date.parse(receivedFrom) > Date.parse(receivedTo)
+      ) {
+        return invalid(
+          "receivedFrom must be before or equal to receivedTo",
+        );
+      }
+
+      const filtered = (
+        await accountMessages(
+          source,
+          context.tenantId,
+          context.accountId!,
+        )
+      ).filter((message) =>
+        summaryMatchesFilters(
+          message,
+          providers,
+          categories,
+          receivedFrom,
+          receivedTo,
+        ),
+      );
+
+      const counts = {
+        critical: 0,
+        important: 0,
+        normal: 0,
+        lowPriority: 0,
+        promotions: 0,
+        autoArchived: 0,
+        pendingDelete: 0,
+      };
+
+      for (const message of filtered) {
+        switch (message.classification.priority) {
+          case "critical":
+            counts.critical += 1;
+            break;
+          case "important":
+            counts.important += 1;
+            break;
+          case "normal":
+            counts.normal += 1;
+            break;
+          case "low":
+          case "very_low":
+          case "disposable":
+            counts.lowPriority += 1;
+            break;
+        }
+
+        if (
+          hasSummaryCategory(
+            message,
+            "promotion",
+            "promotions",
+          )
+        ) {
+          counts.promotions += 1;
+        }
+        if (
+          message.retention.stage === "archived" &&
+          Boolean(message.retention.policyId)
+        ) {
+          counts.autoArchived += 1;
+        }
+        if (
+          message.retention.stage === "pending_trash" ||
+          message.retention.stage === "trashed" ||
+          message.retention.stage === "pending_delete"
+        ) {
+          counts.pendingDelete += 1;
+        }
+      }
+
+      const attentionMessages = filtered
+        .filter(needsAttention)
+        .sort((left, right) => {
+          const scoreDiff =
+            (right.classification.importanceScore ?? -1) -
+            (left.classification.importanceScore ?? -1);
+          if (scoreDiff !== 0) return scoreDiff;
+          return (
+            Date.parse(right.receivedAt) -
+            Date.parse(left.receivedAt)
+          );
+        })
+        .slice(0, attentionLimitFrom(args))
+        .map(summaryMessageView);
+
+      return {
+        accountId: context.accountId!,
+        window: {
+          receivedFrom: receivedFrom ?? null,
+          receivedTo: receivedTo ?? null,
+        },
+        filters: {
+          providers: providers ?? [],
+          categories: categories ?? [],
+        },
+        total: filtered.length,
+        counts: {
+          Critical: counts.critical,
+          Important: counts.important,
+          Normal: counts.normal,
+          "Low Priority": counts.lowPriority,
+          Promotions: counts.promotions,
+          "Auto Archived": counts.autoArchived,
+          "Pending Delete": counts.pendingDelete,
+        },
+        attentionCount: filtered.filter(needsAttention).length,
+        attentionMessages,
       };
     },
   };
@@ -500,6 +844,7 @@ export function createHostedEmailReadTools(
     accountList,
     accountStatus,
     search,
+    inboxSummary,
     read,
     threadRead,
   ];
