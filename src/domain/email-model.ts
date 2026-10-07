@@ -212,4 +212,27 @@ export function assertCanonicalMessage(message: CanonicalMessage): void {
       throw new TypeError(`Header key must be lower-case: ${name}`);
     }
   }
+
+  const attachmentIds = new Set<string>();
+  for (const attachment of message.attachments) {
+    if (!attachment.id.trim()) {
+      throw new TypeError("attachment.id is required");
+    }
+    if (attachmentIds.has(attachment.id)) {
+      throw new TypeError(
+        `Duplicate attachment id: ${attachment.id}`,
+      );
+    }
+    attachmentIds.add(attachment.id);
+
+    if (
+      attachment.sizeBytes !== undefined &&
+      (!Number.isSafeInteger(attachment.sizeBytes) ||
+        attachment.sizeBytes < 0)
+    ) {
+      throw new RangeError(
+        "attachment.sizeBytes must be a non-negative safe integer",
+      );
+    }
+  }
 }

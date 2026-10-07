@@ -15,6 +15,13 @@ import {
   buildSemanticClassifierPrompt,
 } from "./semantic-prompt.js";
 import type {
+  AttachmentClassificationEnricher,
+  AttachmentEnrichmentResult,
+} from "./attachments/attachment-types.js";
+import {
+  attachmentEnrichmentSummary,
+} from "./attachments/attachment-enricher.js";
+import type {
   SemanticBatchResult,
   SemanticClassificationResult,
   SemanticClassifierConfig,
@@ -45,6 +52,7 @@ interface Candidate {
   deterministic: DeterministicImportanceResult;
   quotaCharged: boolean;
   prompt: { system: string; input: string };
+  attachmentEnrichment?: AttachmentEnrichmentResult;
 }
 
 function resolveConfig(config: SemanticClassifierConfig): ResolvedConfig {
@@ -172,6 +180,7 @@ export class SemanticClassifier {
     private readonly telemetry: SemanticCostTelemetry,
     private readonly quota: SemanticQuotaLedger,
     config: SemanticClassifierConfig,
+    private readonly attachmentEnricher?: AttachmentClassificationEnricher,
   ) {
     this.config = resolveConfig(config);
   }
@@ -322,6 +331,26 @@ export class SemanticClassifier {
     );
     const quotaCharged =
       await this.quota.chargeUnique(input.message);
+
+    let attachmentEnrichment:
+      | AttachmentEnrichmentResult
+      | undefined;
+    if (
+      deterministic.needsLlm &&
+      this.attachmentEnricher &&
+      input.message.attachments.length > 0
+    ) {
+      try {
+        attachmentEnrichment =
+          await this.attachmentEnricher.enrich(
+            input.message,
+            deterministic,
+          );
+      } catch {
+        attachmentEnrichment = undefined;
+      }
+    }
+
     const prompt = buildSemanticClassifierPrompt(
       input.message,
       deterministic,
@@ -330,6 +359,12 @@ export class SemanticClassifier {
         maxBodyChars: this.config.maxBodyChars,
         maxThreadContextChars:
           this.config.maxThreadContextChars,
+        ...(attachmentEnrichment
+          ? {
+              attachmentExtractions:
+                attachmentEnrichment.extracted,
+            }
+          : {}),
       },
     );
     return {
@@ -337,6 +372,9 @@ export class SemanticClassifier {
       deterministic,
       quotaCharged,
       prompt,
+      ...(attachmentEnrichment
+        ? { attachmentEnrichment }
+        : {}),
     };
   }
 
@@ -359,6 +397,14 @@ export class SemanticClassifier {
       quotaCharged: candidate.quotaCharged,
       model,
       attempts,
+      ...(candidate.attachmentEnrichment
+        ? {
+            attachmentEnrichment:
+              attachmentEnrichmentSummary(
+                candidate.attachmentEnrichment,
+              ),
+          }
+        : {}),
     };
   }
 
@@ -494,6 +540,14 @@ export class SemanticClassifier {
       needsReview: true,
       quotaCharged: candidate.quotaCharged,
       attempts,
+      ...(candidate.attachmentEnrichment
+        ? {
+            attachmentEnrichment:
+              attachmentEnrichmentSummary(
+                candidate.attachmentEnrichment,
+              ),
+          }
+        : {}),
     };
   }
 
