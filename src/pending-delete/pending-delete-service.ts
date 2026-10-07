@@ -1,4 +1,10 @@
 import { createHash } from "node:crypto";
+import type {
+  ExplainabilityAuditRecorder,
+} from "../audit/audit-recorder.js";
+import {
+  snapshotMessage,
+} from "../actions/action-types.js";
 import {
   ACTION_PLAN_VERSION,
   createActionIdempotencyKey,
@@ -153,6 +159,7 @@ export class PendingDeleteReviewService {
     private readonly actions: RetentionActionExecutor,
     private readonly learning: PersonalLearningEngine,
     private readonly now: () => Date = () => new Date(),
+    private readonly audit?: ExplainabilityAuditRecorder,
   ) {}
 
   async list(
@@ -208,6 +215,14 @@ export class PendingDeleteReviewService {
         "User selected Keep in Pending Delete review",
       );
     }
+    await this.recordManual(
+      job,
+      message,
+      actorId,
+      "keep",
+      "cancel_retention_schedule",
+      "User selected Keep in Pending Delete review",
+    );
     return { jobId, outcome: "kept" };
   }
 
@@ -238,6 +253,15 @@ export class PendingDeleteReviewService {
       "User restored message from Pending Delete review",
     );
 
+    await this.recordManual(
+      job,
+      message,
+      actor,
+      "restore_to_inbox",
+      "restore",
+      "User restored message from Pending Delete review",
+    );
+
     return { jobId, outcome: "restored" };
   }
 
@@ -257,8 +281,17 @@ export class PendingDeleteReviewService {
 
   async changeRule(
     jobId: string,
+    actorId?: string,
   ): Promise<PendingDeleteRuleEditIntent> {
-    const { job } = await this.require(jobId);
+    const { job, message } = await this.require(jobId);
+    await this.recordManual(
+      job,
+      message,
+      actorId,
+      "change_rule",
+      "open_rule_editor",
+      "User opened the matched rule from Pending Delete review",
+    );
     return {
       kind: "edit_rule",
       tenantId: job.tenantId,
@@ -271,10 +304,24 @@ export class PendingDeleteReviewService {
   async deleteNow(
     input: PendingDeleteDeleteNowInput,
   ): Promise<PendingDeleteActionResult> {
+    const { job, message } = await this.require(input.jobId);
+    const requestedAction = job.nextAction ?? "delete_now";
     const result = await this.scheduler.runNow(
       input.jobId,
       input.actorId,
       input.userConfirmationId,
+    );
+    await this.recordManual(
+      job,
+      message,
+      input.actorId,
+      "delete_now",
+      requestedAction,
+      "User explicitly expedited the current retention deletion stage",
+      {
+        userConfirmationId: input.userConfirmationId,
+        retentionOutcome: result.outcome,
+      },
     );
     return {
       jobId: input.jobId,
@@ -330,6 +377,16 @@ export class PendingDeleteReviewService {
       );
     }
 
+    await this.recordManual(
+      job,
+      message,
+      actor,
+      "never_delete_" + scope,
+      "create_personal_protection",
+      "User created Never Delete " + scope + " protection",
+      { protectionKey: key },
+    );
+
     return {
       jobId,
       outcome:
@@ -337,6 +394,49 @@ export class PendingDeleteReviewService {
           ? "never_delete_sender"
           : "never_delete_domain",
     };
+  }
+
+  private async recordManual(
+    job: RetentionJob,
+    message: CanonicalMessage,
+    actorId: string | undefined,
+    requestedAction: string,
+    executedAction: string,
+    reason: string,
+    metadata?: Readonly<Record<string, string | number | boolean | null>>,
+  ): Promise<void> {
+    if (!this.audit) return;
+
+    const afterMessage = await this.messages.get(
+      job.tenantId,
+      job.accountId,
+      job.providerMessageId,
+    );
+
+    await this.audit.recordManualDecision({
+      tenantId: job.tenantId,
+      accountId: job.accountId,
+      canonicalMessageId: message.id,
+      provider: job.provider,
+      providerMessageId: job.providerMessageId,
+      ...(message.internetMessageId
+        ? { internetMessageId: message.internetMessageId }
+        : {}),
+      actor: {
+        type: "user",
+        ...(actorId?.trim() ? { id: actorId.trim() } : {}),
+      },
+      requestedAction,
+      executedAction,
+      outcome: "succeeded",
+      matchedPolicyId: job.policyId,
+      reason,
+      beforeState: snapshotMessage(message),
+      ...(afterMessage
+        ? { afterState: snapshotMessage(afterMessage) }
+        : {}),
+      ...(metadata ? { metadata } : {}),
+    });
   }
 
   private project(

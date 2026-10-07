@@ -92,3 +92,8 @@ export * from "./dashboard/shadow-mode-dashboard.js";
 export * from "./pending-delete/pending-delete-types.js";
 export * from "./pending-delete/pending-delete-service.js";
 export * from "./dashboard/pending-delete-dashboard.js";
+export * from "./audit/audit-types.js";
+export * from "./audit/audit-sanitizer.js";
+export * from "./audit/audit-store.js";
+export * from "./audit/audit-recorder.js";
+export * from "./dashboard/action-audit-dashboard.js";
