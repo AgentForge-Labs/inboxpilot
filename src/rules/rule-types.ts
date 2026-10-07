@@ -1,7 +1,7 @@
 import type { CanonicalMessage } from "../domain/email-model.js";
 import type { PolicyOverride } from "../policy/policy-types.js";
 
-export type RuleCondition =
+export type RuleConditionAtom =
   | { kind: "sender"; address: string }
   | { kind: "domain"; domain: string }
   | { kind: "category"; category: string }
@@ -10,6 +10,13 @@ export type RuleCondition =
       operator: "lt" | "lte" | "gt" | "gte" | "between";
       value: number;
       max?: number;
+    };
+
+export type RuleCondition =
+  | RuleConditionAtom
+  | {
+      kind: "all";
+      conditions: RuleConditionAtom[];
     };
 
 export type RuleAction =

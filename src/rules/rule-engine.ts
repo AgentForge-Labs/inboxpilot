@@ -8,6 +8,7 @@ import type {
   DashboardRule,
   RuleAction,
   RuleCondition,
+  RuleConditionAtom,
   RuleConflict,
   RuleResolution,
 } from "./rule-types.js";
@@ -62,9 +63,9 @@ function assertDays(
   }
 }
 
-export function validateRuleCondition(
-  condition: RuleCondition,
-): RuleCondition {
+function validateRuleConditionAtom(
+  condition: RuleConditionAtom,
+): RuleConditionAtom {
   switch (condition.kind) {
     case "sender": {
       const address = normalizeAddress(condition.address);
@@ -131,6 +132,39 @@ export function validateRuleCondition(
   }
 }
 
+export function validateRuleCondition(
+  condition: RuleCondition,
+): RuleCondition {
+  if (condition.kind !== "all") {
+    return validateRuleConditionAtom(condition);
+  }
+
+  if (
+    !Array.isArray(condition.conditions) ||
+    condition.conditions.length < 2 ||
+    condition.conditions.length > 4
+  ) {
+    throw new RangeError(
+      "all condition requires between 2 and 4 atomic conditions",
+    );
+  }
+
+  const normalized = condition.conditions.map(
+    validateRuleConditionAtom,
+  );
+  const kinds = new Set(normalized.map((item) => item.kind));
+  if (kinds.size !== normalized.length) {
+    throw new TypeError(
+      "all condition cannot repeat the same condition kind",
+    );
+  }
+
+  return {
+    kind: "all",
+    conditions: normalized,
+  };
+}
+
 export function validateRuleAction(
   action: RuleAction,
   destructiveAcknowledged = false,
@@ -165,8 +199,8 @@ export function validateRulePriority(priority: number): number {
   return priority;
 }
 
-export function conditionMatchesMessage(
-  condition: RuleCondition,
+function atomMatchesMessage(
+  condition: RuleConditionAtom,
   message: CanonicalMessage,
 ): boolean {
   switch (condition.kind) {
@@ -206,6 +240,17 @@ export function conditionMatchesMessage(
   }
 }
 
+export function conditionMatchesMessage(
+  condition: RuleCondition,
+  message: CanonicalMessage,
+): boolean {
+  return condition.kind === "all"
+    ? condition.conditions.every((atom) =>
+        atomMatchesMessage(atom, message),
+      )
+    : atomMatchesMessage(condition, message);
+}
+
 export function ruleMatchesMessage(
   rule: DashboardRule,
   message: CanonicalMessage,
@@ -218,8 +263,10 @@ export function ruleMatchesMessage(
   );
 }
 
-function specificity(rule: DashboardRule): number {
-  switch (rule.condition.kind) {
+function atomSpecificity(
+  condition: RuleConditionAtom,
+): number {
+  switch (condition.kind) {
     case "sender":
       return 400;
     case "domain":
@@ -229,6 +276,16 @@ function specificity(rule: DashboardRule): number {
     case "score":
       return 100;
   }
+}
+
+function specificity(rule: DashboardRule): number {
+  return rule.condition.kind === "all"
+    ? rule.condition.conditions.reduce(
+        (total, condition) =>
+          total + atomSpecificity(condition),
+        0,
+      )
+    : atomSpecificity(rule.condition);
 }
 
 function actionSafetyRank(action: RuleAction): number {
@@ -449,7 +506,9 @@ export function compileRulesForPolicyEngine(
   return { policyOverrides, resolverManagedRuleIds };
 }
 
-export function conditionLabel(condition: RuleCondition): string {
+function atomConditionLabel(
+  condition: RuleConditionAtom,
+): string {
   switch (condition.kind) {
     case "sender":
       return "Sender is " + condition.address;
@@ -462,6 +521,12 @@ export function conditionLabel(condition: RuleCondition): string {
         ? "Score " + condition.value + "–" + String(condition.max)
         : "Score " + condition.operator + " " + condition.value;
   }
+}
+
+export function conditionLabel(condition: RuleCondition): string {
+  return condition.kind === "all"
+    ? condition.conditions.map(atomConditionLabel).join(" AND ")
+    : atomConditionLabel(condition);
 }
 
 export function actionLabel(action: RuleAction): string {
@@ -481,13 +546,15 @@ export function actionLabel(action: RuleAction): string {
 
 export function precedenceLabel(rule: DashboardRule): string {
   const scope =
-    rule.condition.kind === "sender"
-      ? "1 · Sender"
-      : rule.condition.kind === "domain"
-        ? "2 · Domain"
-        : rule.condition.kind === "category"
-          ? "3 · Category"
-          : "4 · Score";
+    rule.condition.kind === "all"
+      ? "0 · Compound"
+      : rule.condition.kind === "sender"
+        ? "1 · Sender"
+        : rule.condition.kind === "domain"
+          ? "2 · Domain"
+          : rule.condition.kind === "category"
+            ? "3 · Category"
+            : "4 · Score";
   const safety = isProtective(rule.action)
     ? " · safety override"
     : "";

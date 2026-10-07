@@ -104,3 +104,8 @@ export * from "./rules/rule-types.js";
 export * from "./rules/rule-store.js";
 export * from "./rules/rule-engine.js";
 export * from "./dashboard/rules-dashboard-service.js";
+export * from "./mcp/natural-language-rule-types.js";
+export * from "./mcp/natural-language-rule-confirmation-store.js";
+export * from "./mcp/natural-language-rule-parser.js";
+export * from "./mcp/natural-language-rule-service.js";
+export * from "./mcp/natural-language-rule-tool.js";
