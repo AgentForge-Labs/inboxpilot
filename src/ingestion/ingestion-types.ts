@@ -37,6 +37,7 @@ export interface IngestionBatch {
 
 export interface IngestionCommitResult {
   inserted: number;
+  insertedCanonicalMessageIds: string[];
   updated: number;
   deletedMarked: number;
   unchanged: number;

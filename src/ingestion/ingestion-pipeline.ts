@@ -1,4 +1,5 @@
 import { assertCanonicalMessage } from "../domain/email-model.js";
+import type { CustomerUsageAccounting } from "../billing/usage-accounting.js";
 import {
   isWebhookLikeSource,
   type OperationalTelemetry,
@@ -17,6 +18,7 @@ export interface IncrementalIngestionPipelineOptions {
   pageSize?: number;
   maxPages?: number;
   telemetry?: OperationalTelemetry;
+  customerUsage?: CustomerUsageAccounting;
   now?: () => Date;
 }
 
@@ -37,6 +39,7 @@ export class IncrementalIngestionPipeline {
   private readonly pageSize: number;
   private readonly maxPages: number;
   private readonly telemetry: OperationalTelemetry | undefined;
+  private readonly customerUsage: CustomerUsageAccounting | undefined;
   private readonly now: () => Date;
 
   constructor(
@@ -49,6 +52,7 @@ export class IncrementalIngestionPipeline {
     this.pageSize = Math.max(1, Math.min(options.pageSize ?? 100, 500));
     this.maxPages = Math.max(1, options.maxPages ?? 100);
     this.telemetry = options.telemetry;
+    this.customerUsage = options.customerUsage;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -189,6 +193,21 @@ export class IncrementalIngestionPipeline {
           messages: result.messages,
           deletedProviderMessageIds: result.deletedProviderMessageIds,
         });
+
+        if (
+          this.customerUsage &&
+          committed.insertedCanonicalMessageIds.length > 0
+        ) {
+          const insertedIds = new Set(
+            committed.insertedCanonicalMessageIds,
+          );
+          await this.customerUsage.recordProcessed(
+            result.messages.filter((message) =>
+              insertedIds.has(message.id),
+            ),
+            this.now().toISOString(),
+          );
+        }
 
         inserted += committed.inserted;
         updated += committed.updated;
