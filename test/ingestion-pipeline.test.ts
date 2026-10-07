@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   CustomerUsageAccountingService,
+  FreePlanEntitlementService,
   ImapIdleWakeupSource,
   InMemoryCustomerUsageStore,
   InMemoryIngestionLeaseManager,
@@ -582,5 +583,71 @@ test("ingestion customer usage charges only newly inserted unique email identiti
     ).month.processed,
     1,
   );
+});
+
+test("Free plan accounting caps a large ingestion batch at 100 unique emails without blocking sync storage", async () => {
+  const messages = Array.from(
+    { length: 101 },
+    (_, index) =>
+      canonical(
+        "free-" + index,
+        "free-provider-" + index,
+      ),
+  );
+  const adapter = new FakeAdapter("gmail", [
+    {
+      messages,
+      deletedProviderMessageIds: [],
+      nextCursor: "free-cursor-1",
+      hasMore: false,
+    },
+  ]);
+  const store = new InMemoryCustomerUsageStore();
+  const free = new FreePlanEntitlementService(
+    store,
+    () => new Date("2026-10-07T12:00:00.000Z"),
+  );
+  const { ingestion, repository } = pipeline(
+    adapter,
+    undefined,
+    () => new Date("2026-10-07T12:00:00.000Z"),
+    free,
+  );
+
+  const result = await ingestion.handle(
+    gmailPushSignal(
+      account.context,
+      {
+        emailAddress: "u@example.test",
+        historyId: "free-101",
+      },
+      "2026-10-07T11:59:00.000Z",
+    ),
+  );
+
+  assert.equal(result.status, "processed");
+  assert.equal(result.inserted, 101);
+  assert.ok(
+    await repository.getMessage(
+      "tenant-1",
+      "account-1",
+      "free-100",
+    ),
+    "sync storage must retain over-quota mail for visibility/reconciliation",
+  );
+
+  const state = await free.usageState(
+    "tenant-1",
+    "2026-10-07T12:00:01.000Z",
+  );
+  assert.equal(state.day.processed, 100);
+  assert.equal(state.day.remaining, 0);
+
+  const blocked = await free.reserveEmailProcessing(
+    messages[100]!,
+    "2026-10-07T12:00:02.000Z",
+  );
+  assert.equal(blocked.allowed, false);
+  assert.equal(blocked.reason, "daily_limit");
 });
 
