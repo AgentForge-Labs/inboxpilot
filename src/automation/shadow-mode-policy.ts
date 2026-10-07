@@ -2,6 +2,9 @@ import type { CanonicalClassifierResult } from "../classifier/classifier-contrac
 import type {
   ExplainabilityAuditRecorder,
 } from "../audit/audit-recorder.js";
+import type {
+  AutomationEntitlementResolver,
+} from "../billing/pro-trial.js";
 import type { CanonicalMessage } from "../domain/email-model.js";
 import {
   MailboxPolicyEngine,
@@ -46,12 +49,27 @@ export class ShadowModePolicyCoordinator {
     private readonly shadow: ShadowModeService,
     private readonly now: () => Date = () => new Date(),
     private readonly audit?: ExplainabilityAuditRecorder,
+    private readonly entitlements?: AutomationEntitlementResolver,
   ) {}
 
   async evaluate(
     input: PolicyEngineInput,
   ): Promise<ShadowPolicyEvaluation> {
-    const decision = this.policy.evaluate(input);
+    const effectiveCapabilities =
+      this.entitlements
+        ? await this.entitlements.resolvePlanCapabilities(
+            input.message.tenantId,
+            input.message.accountId,
+            input.planCapabilities,
+          )
+        : input.planCapabilities;
+    const effectiveInput: PolicyEngineInput = {
+      ...input,
+      planCapabilities: effectiveCapabilities,
+    };
+    const decision = this.policy.evaluate(
+      effectiveInput,
+    );
     const state = await this.shadow.getState(
       input.message.tenantId,
       input.message.accountId,
@@ -74,7 +92,7 @@ export class ShadowModePolicyCoordinator {
 
     if (this.audit) {
       await this.audit.recordPolicyDecision(
-        input,
+        effectiveInput,
         decision,
         {
           timestamp: this.now().toISOString(),
