@@ -127,3 +127,8 @@ export * from "./classifier/attachments/attachment-types.js";
 export * from "./classifier/attachments/attachment-policy.js";
 export * from "./classifier/attachments/attachment-audit-store.js";
 export * from "./classifier/attachments/attachment-enricher.js";
+export * from "./privacy/privacy-mode-types.js";
+export * from "./privacy/privacy-envelope.js";
+export * from "./privacy/privacy-cloud-store.js";
+export * from "./privacy/privacy-local-runtime.js";
+export * from "./privacy/privacy-cloud-tools.js";
