@@ -137,3 +137,5 @@ export * from "./observability/operational-telemetry.js";
 export * from "./billing/usage-accounting.js";
 export * from "./billing/free-plan.js";
 export * from "./billing/pro-trial.js";
+export * from "./billing/plan-entitlements.js";
+export * from "./billing/plan-pricing.js";
