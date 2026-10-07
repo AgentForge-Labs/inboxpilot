@@ -233,3 +233,43 @@ test("JSON schema is strict and exposes the complete v1 category vocabulary", ()
     100,
   );
 });
+
+
+test("classifier output rejects executable tool/function payloads even when nested", () => {
+  assert.throws(
+    () =>
+      parseClassifierResult({
+        ...validResult(),
+        tool_calls: [
+          {
+            function: {
+              name: "email_trash",
+              arguments: {
+                accountId: "account-1",
+              },
+            },
+          },
+        ],
+      }),
+    /forbidden executable field "tool_calls"/,
+  );
+
+  assert.throws(
+    () =>
+      parseClassifierResult({
+        ...validResult(),
+        retention: {
+          ...validResult().retention,
+          protectionReasons: [
+            "trusted",
+            {
+              functionCall: {
+                name: "email_send",
+              },
+            },
+          ],
+        },
+      }),
+    /forbidden executable field "functionCall"/,
+  );
+});

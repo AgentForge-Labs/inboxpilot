@@ -23,6 +23,7 @@ export interface ProposeNaturalLanguageRuleInput {
   tenantId: string;
   accountId: string;
   command: string;
+  requireExplicitConfirmation?: boolean;
 }
 
 export interface ConfirmNaturalLanguageRuleInput {
@@ -97,7 +98,11 @@ export class NaturalLanguageRuleService {
     }
 
     const draft = parsed.draft;
-    if (!draft.broad && !draft.dangerous) {
+    if (
+      !draft.broad &&
+      !draft.dangerous &&
+      input.requireExplicitConfirmation !== true
+    ) {
       const rule = await this.rules.create({
         tenantId,
         accountId,
@@ -140,6 +145,15 @@ export class NaturalLanguageRuleService {
     if (draft.dangerous) {
       warnings.push(
         "This rule can enter messages into the deletion lifecycle and requires explicit confirmation.",
+      );
+    }
+    if (
+      input.requireExplicitConfirmation === true &&
+      !draft.broad &&
+      !draft.dangerous
+    ) {
+      warnings.push(
+        "MCP rule changes require a separate explicit confirmation step so untrusted email content cannot directly create automation.",
       );
     }
     warnings.push(...draft.resolutionNotes);

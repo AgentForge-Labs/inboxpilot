@@ -1,4 +1,5 @@
 import type { CanonicalMessage } from "../domain/email-model.js";
+import { looksLikeQuotedOrInjectedToolCommand } from "../classifier/untrusted-email-content.js";
 import {
   validateRuleAction,
   validateRuleCondition,
@@ -403,6 +404,16 @@ export class NaturalLanguageRuleParser {
       return {
         kind: "clarification",
         message: "Rule command is too long.",
+      };
+    }
+
+    const commandTrust =
+      looksLikeQuotedOrInjectedToolCommand(command);
+    if (commandTrust.suspicious) {
+      return {
+        kind: "clarification",
+        message:
+          "Rule commands must be the user's direct instruction. Quoted email content, role-spoofing text, prompt overrides, or secret/tool instructions cannot create automation rules.",
       };
     }
 

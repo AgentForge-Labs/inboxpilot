@@ -109,6 +109,78 @@ const RETENTION_FIELDS = new Set([
   "trashAfterDays",
 ]);
 
+const FORBIDDEN_EXECUTABLE_OUTPUT_FIELDS = new Set([
+  "toolCall",
+  "toolCalls",
+  "tool_calls",
+  "functionCall",
+  "function_call",
+  "arguments",
+  "command",
+  "commands",
+  "shell",
+  "script",
+  "code",
+  "url",
+  "endpoint",
+  "httpRequest",
+  "request",
+  "headers",
+  "authorization",
+  "recipients",
+  "to",
+  "cc",
+  "bcc",
+  "messageBody",
+  "body",
+  "__proto__",
+  "prototype",
+  "constructor",
+]);
+
+function assertNoExecutableOutputFields(
+  value: unknown,
+  path = "classifier result",
+  depth = 0,
+): void {
+  if (depth > 10) {
+    throw new TypeError(
+      "classifier result exceeds maximum structured depth",
+    );
+  }
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      assertNoExecutableOutputFields(
+        entry,
+        path + "[" + index + "]",
+        depth + 1,
+      ),
+    );
+    return;
+  }
+  if (!value || typeof value !== "object") {
+    return;
+  }
+
+  for (const [key, entry] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (FORBIDDEN_EXECUTABLE_OUTPUT_FIELDS.has(key)) {
+      throw new TypeError(
+        path +
+          ' contains forbidden executable field "' +
+          key +
+          '"',
+      );
+    }
+    assertNoExecutableOutputFields(
+      entry,
+      path + "." + key,
+      depth + 1,
+    );
+  }
+}
+
 function assertObject(
   value: unknown,
   field: string,
@@ -327,6 +399,7 @@ export function parseClassifierResult(
   input: unknown,
 ): CanonicalClassifierResult {
   assertObject(input, "classifier result");
+  assertNoExecutableOutputFields(input);
   assertNoUnknownFields(
     input,
     TOP_LEVEL_FIELDS,
