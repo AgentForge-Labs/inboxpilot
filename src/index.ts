@@ -100,3 +100,7 @@ export * from "./dashboard/action-audit-dashboard.js";
 export * from "./dashboard/inbox-dashboard-types.js";
 export * from "./dashboard/inbox-dashboard-store.js";
 export * from "./dashboard/inbox-dashboard-service.js";
+export * from "./rules/rule-types.js";
+export * from "./rules/rule-store.js";
+export * from "./rules/rule-engine.js";
+export * from "./dashboard/rules-dashboard-service.js";
