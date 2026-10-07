@@ -1,4 +1,7 @@
 import type { CanonicalClassifierResult } from "../classifier/classifier-contract.js";
+import type {
+  ExplainabilityAuditRecorder,
+} from "../audit/audit-recorder.js";
 import type { CanonicalMessage } from "../domain/email-model.js";
 import {
   MailboxPolicyEngine,
@@ -42,6 +45,7 @@ export class ShadowModePolicyCoordinator {
     private readonly policy: MailboxPolicyEngine,
     private readonly shadow: ShadowModeService,
     private readonly now: () => Date = () => new Date(),
+    private readonly audit?: ExplainabilityAuditRecorder,
   ) {}
 
   async evaluate(
@@ -67,6 +71,19 @@ export class ShadowModePolicyCoordinator {
       state.status,
       decision,
     );
+
+    if (this.audit) {
+      await this.audit.recordPolicyDecision(
+        input,
+        decision,
+        {
+          timestamp: this.now().toISOString(),
+          ...(suppressed
+            ? { outcomeOverride: "suppressed" }
+            : {}),
+        },
+      );
+    }
 
     return {
       shadow: state,

@@ -72,10 +72,32 @@ export interface ActionExecutionResult {
   afterStateStatus: "captured" | "unavailable" | "deleted";
 }
 
+export interface ActionExplainabilityRecorder {
+  recordActionExecution(
+    plan: MailboxActionPlan,
+    context: ActionExecutionContext,
+    result: ActionExecutionResult,
+    outcome?: "succeeded" | "deduplicated",
+    timestamp?: string,
+  ): Promise<unknown>;
+  recordActionFailure(
+    plan: MailboxActionPlan,
+    context: ActionExecutionContext,
+    beforeState: MessageStateSnapshot,
+    error: {
+      code: string;
+      category?: string;
+      message: string;
+    },
+    timestamp?: string,
+  ): Promise<unknown>;
+}
+
 export interface ActionExecutorOptions {
   maxAttempts?: number;
   retryDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  auditRecorder?: ActionExplainabilityRecorder;
 }
 
 const CAPABILITY_BY_ACTION: Readonly<
@@ -268,6 +290,7 @@ export class ProviderSafeActionExecutor {
   private readonly maxAttempts: number;
   private readonly retryDelayMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly auditRecorder: ActionExplainabilityRecorder | undefined;
 
   constructor(
     private readonly resolver: ProviderAdapterResolver,
@@ -279,6 +302,7 @@ export class ProviderSafeActionExecutor {
     this.sleep =
       options.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.auditRecorder = options.auditRecorder;
   }
 
   async execute(
@@ -310,7 +334,7 @@ export class ProviderSafeActionExecutor {
           attempt: existing.attemptCount,
           timestamp: new Date().toISOString(),
         });
-        return {
+        const result: ActionExecutionResult = {
           status: "deduplicated",
           idempotencyKey: plan.idempotencyKey,
           attempts: existing.attemptCount,
@@ -318,6 +342,13 @@ export class ProviderSafeActionExecutor {
           afterState: existing.afterState ?? null,
           afterStateStatus: existing.afterStateStatus ?? "unavailable",
         };
+        await this.auditRecorder?.recordActionExecution(
+          plan,
+          context,
+          result,
+          "deduplicated",
+        );
+        return result;
       }
 
       throw new ActionInProgressError(
@@ -390,7 +421,7 @@ export class ProviderSafeActionExecutor {
           attempt,
           timestamp: completedAt,
         });
-        return {
+        const result: ActionExecutionResult = {
           status: "executed",
           idempotencyKey: plan.idempotencyKey,
           attempts: attempt,
@@ -398,6 +429,14 @@ export class ProviderSafeActionExecutor {
           afterState: after.state,
           afterStateStatus: after.status,
         };
+        await this.auditRecorder?.recordActionExecution(
+          plan,
+          context,
+          result,
+          "succeeded",
+          completedAt,
+        );
+        return result;
       } catch (error) {
         const failure = classifyMutationError(error);
         const canRetry =
@@ -447,6 +486,17 @@ export class ProviderSafeActionExecutor {
           errorCode: failure.code,
           errorCategory: failure.category,
         });
+        await this.auditRecorder?.recordActionFailure(
+          plan,
+          context,
+          beforeState,
+          {
+            code: failure.code,
+            category: failure.category,
+            message: failure.message,
+          },
+          completedAt,
+        );
         throw error;
       }
     }
