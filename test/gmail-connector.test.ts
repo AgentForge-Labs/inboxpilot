@@ -7,7 +7,10 @@ import {
   GmailAdapter,
   GmailApiClient,
   GmailOAuthClient,
+  InMemoryOperationalTelemetry,
+  ProviderRateLimitTracker,
   normalizeGmailMessage,
+  providerRetryDelayMs,
   type GmailCredentialStore,
   type GmailStoredCredentials,
   type ProviderConnectionContext,
@@ -178,6 +181,8 @@ test("Gmail message normalization creates canonical body, flags and auth signals
 test("Gmail API retries 429 and succeeds without changing caller semantics", async () => {
   const store = activeStore();
   const oauth = oauthWithStore(store);
+  const telemetry = new InMemoryOperationalTelemetry();
+  const rateLimits = new ProviderRateLimitTracker();
   let calls = 0;
   const sleeps: number[] = [];
 
@@ -201,6 +206,10 @@ test("Gmail API retries 429 and succeeds without changing caller semantics", asy
       sleep: async (ms) => {
         sleeps.push(ms);
       },
+      telemetry,
+      rateLimits,
+      now: () =>
+        new Date("2026-10-07T12:00:00.000Z"),
     },
   );
 
@@ -208,6 +217,45 @@ test("Gmail API retries 429 and succeeds without changing caller semantics", asy
   assert.equal(result.emailAddress, "user@example.test");
   assert.equal(calls, 2);
   assert.deepEqual(sleeps, [1000]);
+
+  const events = telemetry.list({
+    tenantId: "tenant-1",
+    accountId: "account-1",
+  });
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.metric, "provider_throttled");
+  assert.equal(events[0]?.provider, "gmail");
+  assert.equal(events[0]?.retryAfterMs, 1000);
+  assert.equal(events[0]?.status, "throttled");
+  assert.equal(rateLimits.snapshot().length, 0);
+});
+
+test("provider retry delay honors Retry-After dates and clamps excessive backoff", () => {
+  const now = new Date("2026-10-07T12:00:00.000Z");
+  assert.equal(
+    providerRetryDelayMs(
+      0,
+      "Wed, 07 Oct 2026 12:00:04 GMT",
+      {
+        baseDelayMs: 250,
+        maxDelayMs: 10_000,
+      },
+      now,
+    ),
+    4000,
+  );
+  assert.equal(
+    providerRetryDelayMs(
+      10,
+      "999999",
+      {
+        baseDelayMs: 250,
+        maxDelayMs: 30_000,
+      },
+      now,
+    ),
+    30_000,
+  );
 });
 
 test("Gmail adapter performs initial backfill and returns history cursor", async () => {

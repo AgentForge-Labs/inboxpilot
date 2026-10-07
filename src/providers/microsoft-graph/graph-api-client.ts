@@ -1,3 +1,8 @@
+import {
+  providerRetryDelayMs,
+  type OperationalTelemetry,
+  type ProviderRateLimitTracker,
+} from "../../observability/operational-telemetry.js";
 import type { ProviderConnectionContext } from "../provider-adapter.js";
 import {
   MicrosoftOAuthClient,
@@ -20,12 +25,20 @@ export interface MicrosoftGraphApiClientOptions {
   maxRetries?: number;
   baseDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
+  maxRetryDelayMs?: number;
+  telemetry?: OperationalTelemetry;
+  rateLimits?: ProviderRateLimitTracker;
+  now?: () => Date;
 }
 
 export class MicrosoftGraphApiClient {
   private readonly maxRetries: number;
   private readonly baseDelayMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
+  private readonly maxRetryDelayMs: number;
+  private readonly telemetry: OperationalTelemetry | undefined;
+  private readonly rateLimits: ProviderRateLimitTracker | undefined;
+  private readonly now: () => Date;
 
   constructor(
     private readonly oauth: MicrosoftOAuthClient,
@@ -37,6 +50,13 @@ export class MicrosoftGraphApiClient {
     this.sleep =
       options.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.maxRetryDelayMs = Math.max(
+      this.baseDelayMs,
+      options.maxRetryDelayMs ?? 5 * 60_000,
+    );
+    this.telemetry = options.telemetry;
+    this.rateLimits = options.rateLimits;
+    this.now = options.now ?? (() => new Date());
   }
 
   request<T>(
@@ -83,12 +103,48 @@ export class MicrosoftGraphApiClient {
           response.status >= 500) &&
         attempt < this.maxRetries
       ) {
-        const retryAfter = Number(response.headers.get("retry-after"));
-        const delay =
-          Number.isFinite(retryAfter) && retryAfter > 0
-            ? retryAfter * 1000
-            : this.baseDelayMs * 2 ** attempt;
+        const delay = providerRetryDelayMs(
+          attempt,
+          response.headers.get("retry-after"),
+          {
+            baseDelayMs: this.baseDelayMs,
+            maxDelayMs: this.maxRetryDelayMs,
+          },
+          this.now(),
+        );
+        const throttled = response.status === 429;
+        if (throttled) {
+          this.rateLimits?.noteThrottle(
+            {
+              tenantId: context.tenantId,
+              accountId: context.accountId,
+              provider: "microsoft_graph",
+            },
+            delay,
+            this.now(),
+          );
+        }
+        await this.telemetry?.record({
+          metric: throttled
+            ? "provider_throttled"
+            : "provider_retry",
+          tenantId: context.tenantId,
+          accountId: context.accountId,
+          provider: "microsoft_graph",
+          value: 1,
+          status: throttled ? "throttled" : "retrying",
+          attempt: attempt + 1,
+          retryAfterMs: delay,
+          timestamp: this.now().toISOString(),
+        });
         await this.sleep(delay);
+        if (throttled) {
+          this.rateLimits?.clear({
+            tenantId: context.tenantId,
+            accountId: context.accountId,
+            provider: "microsoft_graph",
+          });
+        }
         continue;
       }
 

@@ -64,4 +64,33 @@ export class InMemoryExplainabilityAuditStore
       .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
       .map((event) => structuredClone(event));
   }
+
+  async exportAccountData(
+    tenantId: string,
+    accountId: string,
+  ): Promise<ExplainabilityAuditEvent[]> {
+    return this.listForAccount(
+      tenantId,
+      accountId,
+      5000,
+    );
+  }
+
+  async deleteAccountData(
+    tenantId: string,
+    accountId: string,
+  ): Promise<number> {
+    let deleted = 0;
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index]!;
+      if (
+        event.tenantId === tenantId &&
+        event.accountId === accountId
+      ) {
+        this.events.splice(index, 1);
+        deleted += 1;
+      }
+    }
+    return deleted;
+  }
 }

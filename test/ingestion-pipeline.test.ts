@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ImapIdleWakeupSource,
   InMemoryIngestionLeaseManager,
+  InMemoryOperationalTelemetry,
   InMemoryIngestionRepository,
   InMemoryIngestionSignalStore,
   IncrementalIngestionPipeline,
@@ -117,7 +118,11 @@ class FakeAdapter implements ProviderAdapter {
   async markRead() {}
 }
 
-function pipeline(adapter: ProviderAdapter) {
+function pipeline(
+  adapter: ProviderAdapter,
+  telemetry?: InMemoryOperationalTelemetry,
+  now?: () => Date,
+) {
   const repository = new InMemoryIngestionRepository();
   const signals = new InMemoryIngestionSignalStore();
   const leases = new InMemoryIngestionLeaseManager();
@@ -130,7 +135,12 @@ function pipeline(adapter: ProviderAdapter) {
     repository,
     signals,
     leases,
-    { pageSize: 50, maxPages: 10 },
+    {
+      pageSize: 50,
+      maxPages: 10,
+      ...(telemetry ? { telemetry } : {}),
+      ...(now ? { now } : {}),
+    },
   );
   return { ingestion, repository, signals, leases };
 }
@@ -444,3 +454,47 @@ test("IMAP IDLE and Maildir watcher sources emit reconcile-only wakeup signals",
   assert.equal(localSignal?.source, "local_filesystem");
   assert.equal(localSignal?.provider, "maildir");
 });
+
+test("ingestion records webhook health and processing lag without message content", async () => {
+  const adapter = new FakeAdapter("gmail", [
+    {
+      messages: [],
+      deletedProviderMessageIds: [],
+      nextCursor: "cursor-1",
+      hasMore: false,
+    },
+  ]);
+  const telemetry = new InMemoryOperationalTelemetry();
+  const { ingestion } = pipeline(
+    adapter,
+    telemetry,
+    () => new Date("2026-10-07T12:00:05.000Z"),
+  );
+  const signal = gmailPushSignal(
+    account.context,
+    {
+      emailAddress: "u@example.test",
+      historyId: "55",
+    },
+    "2026-10-07T12:00:00.000Z",
+  );
+
+  await ingestion.handle(signal);
+
+  const lag = telemetry.list({
+    metric: "ingestion_lag_ms",
+  });
+  const webhook = telemetry.list({
+    metric: "webhook_health",
+  });
+  assert.equal(lag.length, 1);
+  assert.equal(lag[0]?.value, 5000);
+  assert.equal(lag[0]?.source, "gmail_push");
+  assert.equal(webhook.length, 1);
+  assert.equal(webhook[0]?.status, "received");
+  assert.equal(
+    JSON.stringify(telemetry.events).includes("emailAddress"),
+    false,
+  );
+});
+

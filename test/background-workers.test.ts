@@ -4,6 +4,7 @@ import {
   BACKGROUND_AUTOMATION_WORKERS,
   BackgroundAutomationSupervisor,
   InMemoryBackgroundAutomationQueue,
+  InMemoryOperationalTelemetry,
   createIngestionWorkerHandler,
   type BackgroundAutomationHandlers,
   type BackgroundAutomationJob,
@@ -325,3 +326,69 @@ test("ingestion adapter rejects cross-account jobs before touching the pipeline"
   );
   assert.equal(calls.length, 1);
 });
+
+test("background automation emits queue gauges plus retry and dead-letter counters", async () => {
+  const queue = new InMemoryBackgroundAutomationQueue();
+  const telemetry = new InMemoryOperationalTelemetry();
+  const time = clock();
+  let attempts = 0;
+  const supervisor = new BackgroundAutomationSupervisor(
+    queue,
+    handlers(async (kind) => {
+      if (kind !== "classification") return;
+      attempts += 1;
+      throw new Error("temporary classifier failure");
+    }),
+    {
+      maxAttempts: 2,
+      retryBaseDelayMs: 1000,
+      retryMaxDelayMs: 1000,
+      telemetry,
+    },
+    time.now,
+  );
+
+  await supervisor.enqueue({
+    id: "observed-classification",
+    kind: "classification",
+    tenantId: "tenant-1",
+    accountId: "account-1",
+  });
+
+  await supervisor.runCycle();
+  assert.equal(
+    telemetry.list({
+      metric: "worker_retry",
+    }).length,
+    1,
+  );
+  assert.ok(
+    telemetry.list({
+      metric: "queue_depth",
+    }).some(
+      (event) =>
+        event.worker === "classification" &&
+        event.value === 1,
+    ),
+  );
+
+  time.advance(1000);
+  await supervisor.runCycle();
+  assert.equal(attempts, 2);
+  assert.equal(
+    telemetry.list({
+      metric: "worker_dead_letter",
+    }).length,
+    1,
+  );
+  assert.ok(
+    telemetry.list({
+      metric: "queue_dead_letters",
+    }).some(
+      (event) =>
+        event.worker === "classification" &&
+        event.value === 1,
+    ),
+  );
+});
+

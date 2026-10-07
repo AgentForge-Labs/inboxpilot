@@ -1,4 +1,8 @@
 import { assertCanonicalMessage } from "../domain/email-model.js";
+import {
+  isWebhookLikeSource,
+  type OperationalTelemetry,
+} from "../observability/operational-telemetry.js";
 import type {
   IngestionAccount,
   IngestionLeaseManager,
@@ -12,6 +16,8 @@ import type {
 export interface IncrementalIngestionPipelineOptions {
   pageSize?: number;
   maxPages?: number;
+  telemetry?: OperationalTelemetry;
+  now?: () => Date;
 }
 
 function assertSignal(signal: IngestionSignal): void {
@@ -30,6 +36,8 @@ function assertSignal(signal: IngestionSignal): void {
 export class IncrementalIngestionPipeline {
   private readonly pageSize: number;
   private readonly maxPages: number;
+  private readonly telemetry: OperationalTelemetry | undefined;
+  private readonly now: () => Date;
 
   constructor(
     private readonly resolver: IngestionProviderAdapterResolver,
@@ -40,10 +48,39 @@ export class IncrementalIngestionPipeline {
   ) {
     this.pageSize = Math.max(1, Math.min(options.pageSize ?? 100, 500));
     this.maxPages = Math.max(1, options.maxPages ?? 100);
+    this.telemetry = options.telemetry;
+    this.now = options.now ?? (() => new Date());
   }
 
   async handle(signal: IngestionSignal): Promise<IngestionRunResult> {
     assertSignal(signal);
+    const observedAt = this.now();
+    const lagMs = Math.max(
+      0,
+      observedAt.getTime() - Date.parse(signal.receivedAt),
+    );
+    await this.telemetry?.record({
+      metric: "ingestion_lag_ms",
+      tenantId: signal.tenantId,
+      accountId: signal.accountId,
+      provider: signal.provider,
+      source: signal.source,
+      status: "received",
+      value: lagMs,
+      timestamp: observedAt.toISOString(),
+    });
+    if (isWebhookLikeSource(signal.source)) {
+      await this.telemetry?.record({
+        metric: "webhook_health",
+        tenantId: signal.tenantId,
+        accountId: signal.accountId,
+        provider: signal.provider,
+        source: signal.source,
+        status: "received",
+        value: 1,
+        timestamp: observedAt.toISOString(),
+      });
+    }
 
     if (await this.signalStore.isProcessed(signal.id)) {
       return {

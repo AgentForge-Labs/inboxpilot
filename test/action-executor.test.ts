@@ -7,6 +7,7 @@ import {
   ActionPreconditionError,
   GmailApiError,
   InMemoryActionExecutionStore,
+  InMemoryOperationalTelemetry,
   MicrosoftGraphApiError,
   ProviderSafeActionExecutor,
   createActionIdempotencyKey,
@@ -186,6 +187,7 @@ function executor(
   adapter: ProviderAdapter,
   store = new InMemoryActionExecutionStore(),
   maxAttempts = 2,
+  telemetry?: InMemoryOperationalTelemetry,
 ) {
   let resolves = 0;
   const instance = new ProviderSafeActionExecutor(
@@ -196,7 +198,15 @@ function executor(
       },
     },
     store,
-    { maxAttempts, retryDelayMs: 0 },
+    {
+      maxAttempts,
+      retryDelayMs: 0,
+      ...(telemetry
+        ? { operationalTelemetry: telemetry }
+        : {}),
+      now: () =>
+        new Date("2026-10-07T12:00:00.000Z"),
+    },
   );
   return { instance, store, getResolves: () => resolves };
 }
@@ -417,3 +427,54 @@ test("unsupported capability is rejected before mutation is persisted", async ()
   );
   assert.equal(store.records.size, 0);
 });
+
+test("idempotent action records execution then deduplication without a second provider mutation", async () => {
+  const adapter = new FakeAdapter(
+    "gmail",
+    capabilities("getMessage", "markRead"),
+  );
+  const telemetry = new InMemoryOperationalTelemetry();
+  const { instance } = executor(
+    adapter,
+    new InMemoryActionExecutionStore(),
+    2,
+    telemetry,
+  );
+  const actionPlan = plan({
+    type: "mark_read",
+    value: true,
+  });
+
+  const first = await instance.execute(
+    actionPlan,
+    executionContext,
+  );
+  const second = await instance.execute(
+    actionPlan,
+    executionContext,
+  );
+
+  assert.equal(first.status, "executed");
+  assert.equal(second.status, "deduplicated");
+  assert.equal(
+    adapter.calls.filter((call) =>
+      call.startsWith("markRead:"),
+    ).length,
+    1,
+  );
+
+  const metrics = telemetry.list({
+    metric: "action_result",
+    tenantId: "tenant-1",
+    accountId: "account-1",
+  });
+  assert.deepEqual(
+    metrics.map((event) => event.status),
+    ["succeeded", "deduplicated"],
+  );
+  assert.equal(
+    JSON.stringify(metrics).includes("provider-message-1"),
+    false,
+  );
+});
+
