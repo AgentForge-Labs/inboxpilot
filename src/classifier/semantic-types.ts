@@ -9,6 +9,9 @@ import type {
   DeterministicImportanceResult,
   ImportanceHistoryContext,
 } from "./importance-engine.js";
+import type {
+  AttachmentEnrichmentSummary,
+} from "./attachments/attachment-types.js";
 
 export interface SemanticModelUsage {
   inputTokens: number;
@@ -88,6 +91,7 @@ export interface SemanticClassificationResult {
   quotaCharged: boolean;
   model?: string;
   attempts: number;
+  attachmentEnrichment?: AttachmentEnrichmentSummary;
 }
 
 export interface SemanticBatchResult {
