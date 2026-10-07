@@ -106,6 +106,7 @@ export class InMemoryIngestionRepository implements IngestionRepository {
     }
 
     let inserted = 0;
+    const insertedCanonicalMessageIds: string[] = [];
     let updated = 0;
     let unchanged = 0;
     let deletedMarked = 0;
@@ -160,6 +161,7 @@ export class InMemoryIngestionRepository implements IngestionRepository {
         pendingProviderIndex.set(pKey, incoming.id);
         pendingFingerprints.set(keyForMessage, fingerprint);
         inserted += 1;
+        insertedCanonicalMessageIds.push(incoming.id);
       } else if (pendingFingerprints.get(keyForMessage) === fingerprint) {
         unchanged += 1;
       } else {
@@ -200,6 +202,7 @@ export class InMemoryIngestionRepository implements IngestionRepository {
 
     return {
       inserted,
+      insertedCanonicalMessageIds,
       updated,
       unchanged,
       deletedMarked,

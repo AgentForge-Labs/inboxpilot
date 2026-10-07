@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  CustomerUsageAccountingService,
   ImapIdleWakeupSource,
+  InMemoryCustomerUsageStore,
   InMemoryIngestionLeaseManager,
   InMemoryOperationalTelemetry,
   InMemoryIngestionRepository,
@@ -15,6 +17,7 @@ import {
   scheduledReconciliationSignal,
   unsupportedCapabilities,
   type CanonicalMessage,
+  type CustomerUsageAccounting,
   type IngestionAccount,
   type ProviderAdapter,
   type ProviderKind,
@@ -122,6 +125,7 @@ function pipeline(
   adapter: ProviderAdapter,
   telemetry?: InMemoryOperationalTelemetry,
   now?: () => Date,
+  customerUsage?: CustomerUsageAccounting,
 ) {
   const repository = new InMemoryIngestionRepository();
   const signals = new InMemoryIngestionSignalStore();
@@ -139,6 +143,7 @@ function pipeline(
       pageSize: 50,
       maxPages: 10,
       ...(telemetry ? { telemetry } : {}),
+      ...(customerUsage ? { customerUsage } : {}),
       ...(now ? { now } : {}),
     },
   );
@@ -495,6 +500,87 @@ test("ingestion records webhook health and processing lag without message conten
   assert.equal(
     JSON.stringify(telemetry.events).includes("emailAddress"),
     false,
+  );
+});
+
+test("ingestion customer usage charges only newly inserted unique email identities", async () => {
+  const first = canonical(
+    "c-usage",
+    "provider-usage",
+    "gmail",
+    "First subject",
+  );
+  const updated = canonical(
+    "c-usage",
+    "provider-usage",
+    "gmail",
+    "Updated subject",
+  );
+  const adapter = new FakeAdapter("gmail", [
+    {
+      messages: [first],
+      deletedProviderMessageIds: [],
+      nextCursor: "cursor-usage-1",
+      hasMore: false,
+    },
+    {
+      messages: [updated],
+      deletedProviderMessageIds: [],
+      nextCursor: "cursor-usage-2",
+      hasMore: false,
+    },
+  ]);
+  const store = new InMemoryCustomerUsageStore();
+  const usage = new CustomerUsageAccountingService(
+    store,
+    () => new Date("2026-10-07T12:00:00.000Z"),
+  );
+  const { ingestion } = pipeline(
+    adapter,
+    undefined,
+    () => new Date("2026-10-07T12:00:00.000Z"),
+    usage,
+  );
+
+  const firstSignal = gmailPushSignal(
+    account.context,
+    {
+      emailAddress: "u@example.test",
+      historyId: "usage-1",
+    },
+    "2026-10-07T11:59:00.000Z",
+  );
+  const secondSignal = gmailPushSignal(
+    account.context,
+    {
+      emailAddress: "u@example.test",
+      historyId: "usage-2",
+    },
+    "2026-10-07T12:01:00.000Z",
+  );
+
+  const firstRun = await ingestion.handle(firstSignal);
+  const secondRun = await ingestion.handle(secondSignal);
+
+  assert.equal(firstRun.inserted, 1);
+  assert.equal(secondRun.inserted, 0);
+  assert.equal(secondRun.updated, 1);
+
+  const summary = await usage.summary("tenant-1", {
+    at: "2026-10-07T12:30:00.000Z",
+  });
+  assert.equal(summary.day.processed, 1);
+  assert.equal(summary.month.processed, 1);
+
+  const duplicate = await ingestion.handle(secondSignal);
+  assert.equal(duplicate.status, "deduplicated");
+  assert.equal(
+    (
+      await usage.summary("tenant-1", {
+        at: "2026-10-07T12:30:00.000Z",
+      })
+    ).month.processed,
+    1,
   );
 });
 

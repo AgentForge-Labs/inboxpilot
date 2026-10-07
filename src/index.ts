@@ -134,3 +134,4 @@ export * from "./privacy/privacy-local-runtime.js";
 export * from "./privacy/privacy-cloud-tools.js";
 export * from "./privacy/privacy-retention.js";
 export * from "./observability/operational-telemetry.js";
+export * from "./billing/usage-accounting.js";
