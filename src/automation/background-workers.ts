@@ -18,6 +18,10 @@ import type {
   RetentionJobStore,
   RetentionRunResult,
 } from "../retention/retention-types.js";
+import {
+  tenantScopedKey,
+  type TenantAccountScope,
+} from "../security/tenant-boundary.js";
 
 export const BACKGROUND_AUTOMATION_WORKERS = [
   "ingestion",
@@ -74,13 +78,18 @@ export interface BackgroundAutomationQueue {
     limit: number,
     staleClaimBefore: string,
   ): Promise<BackgroundAutomationJob[]>;
-  complete(jobId: string): Promise<void>;
+  complete(
+    scope: TenantAccountScope,
+    jobId: string,
+  ): Promise<void>;
   retry(
+    scope: TenantAccountScope,
     jobId: string,
     availableAt: string,
     error: string,
   ): Promise<void>;
   deadLetter(
+    scope: TenantAccountScope,
     jobId: string,
     failedAt: string,
     error: string,
@@ -252,6 +261,17 @@ function cloneJob(
   return structuredClone(job);
 }
 
+function backgroundJobKey(
+  scope: TenantAccountScope,
+  jobId: string,
+): string {
+  return tenantScopedKey(
+    scope,
+    "background_job",
+    nonEmpty(jobId, "jobId"),
+  );
+}
+
 export class InMemoryBackgroundAutomationQueue
   implements BackgroundAutomationQueue
 {
@@ -267,10 +287,11 @@ export class InMemoryBackgroundAutomationQueue
   async enqueue(
     job: BackgroundAutomationJob,
   ): Promise<boolean> {
-    if (this.jobs.has(job.id) || this.dead.has(job.id)) {
+    const key = backgroundJobKey(job, job.id);
+    if (this.jobs.has(key) || this.dead.has(key)) {
       return false;
     }
-    this.jobs.set(job.id, cloneJob(job));
+    this.jobs.set(key, cloneJob(job));
     return true;
   }
 
@@ -314,7 +335,7 @@ export class InMemoryBackgroundAutomationQueue
       .slice(0, Math.max(1, limit));
 
     for (const job of selected) {
-      this.jobs.set(job.id, {
+      this.jobs.set(backgroundJobKey(job, job.id), {
         ...job,
         claimedAt: now,
       });
@@ -325,23 +346,28 @@ export class InMemoryBackgroundAutomationQueue
     }));
   }
 
-  async complete(jobId: string): Promise<void> {
-    this.jobs.delete(jobId);
+  async complete(
+    scope: TenantAccountScope,
+    jobId: string,
+  ): Promise<void> {
+    this.jobs.delete(backgroundJobKey(scope, jobId));
   }
 
   async retry(
+    scope: TenantAccountScope,
     jobId: string,
     availableAt: string,
     error: string,
   ): Promise<void> {
     assertIso(availableAt, "availableAt");
-    const existing = this.jobs.get(jobId);
+    const key = backgroundJobKey(scope, jobId);
+    const existing = this.jobs.get(key);
     if (!existing) {
       throw new Error(
         "Background job was not found for retry",
       );
     }
-    this.jobs.set(jobId, {
+    this.jobs.set(key, {
       ...existing,
       attempt: existing.attempt + 1,
       availableAt,
@@ -351,12 +377,14 @@ export class InMemoryBackgroundAutomationQueue
   }
 
   async deadLetter(
+    scope: TenantAccountScope,
     jobId: string,
     failedAt: string,
     error: string,
   ): Promise<void> {
     assertIso(failedAt, "failedAt");
-    const existing = this.jobs.get(jobId);
+    const key = backgroundJobKey(scope, jobId);
+    const existing = this.jobs.get(key);
     if (!existing) {
       throw new Error(
         "Background job was not found for dead-letter",
@@ -368,8 +396,8 @@ export class InMemoryBackgroundAutomationQueue
       claimedAt: undefined,
       lastError: error.slice(0, 1000),
     };
-    this.jobs.delete(jobId);
-    this.dead.set(jobId, {
+    this.jobs.delete(key);
+    this.dead.set(key, {
       job: cloneJob(failed),
       failedAt,
       error: error.slice(0, 1000),
@@ -556,7 +584,7 @@ export class BackgroundAutomationSupervisor {
     for (const job of claimed) {
       try {
         await this.handlers[kind](cloneJob(job));
-        await this.queue.complete(job.id);
+        await this.queue.complete(job, job.id);
         const state =
           this.workerHealth.get(kind) ??
           initialHealth(kind);
@@ -577,6 +605,7 @@ export class BackgroundAutomationSupervisor {
         try {
           if (exhausted) {
             await this.queue.deadLetter(
+              job,
               job.id,
               failureAt.toISOString(),
               errorText,
@@ -588,6 +617,7 @@ export class BackgroundAutomationSupervisor {
               this.retryMaxDelayMs,
             );
             await this.queue.retry(
+              job,
               job.id,
               new Date(
                 failureAt.getTime() + delay,

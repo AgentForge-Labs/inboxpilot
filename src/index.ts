@@ -121,3 +121,4 @@ export * from "./mcp/hosted/email-automation-hosted-tools.js";
 export * from "./mcp/hosted/email-control-hosted-tools.js";
 
 export * from "./automation/background-workers.js";
+export * from "./security/tenant-boundary.js";

@@ -1,3 +1,4 @@
+import { assertTenantAccountAccess } from "../../security/tenant-boundary.js";
 import type {
   McpControlPlaneUsageStore,
 } from "./hosted-mcp-store.js";
@@ -159,7 +160,18 @@ export class HostedMcpToolRegistry {
           );
         }
         accountId = rawAccountId.trim();
-        if (!principal.accountIds.includes(accountId)) {
+        try {
+          assertTenantAccountAccess(
+            {
+              tenantId: principal.tenantId,
+              accountIds: principal.accountIds,
+            },
+            {
+              tenantId: principal.tenantId,
+              accountId,
+            },
+          );
+        } catch {
           throw new HostedMcpToolError(
             "TOOL_ACCOUNT_DENIED",
             "Mailbox account is not authorized by this OAuth grant",

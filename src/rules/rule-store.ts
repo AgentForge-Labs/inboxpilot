@@ -1,3 +1,4 @@
+import { tenantScopedKey } from "../security/tenant-boundary.js";
 import type {
   DashboardRule,
   DashboardRuleStore,
@@ -8,7 +9,7 @@ function key(
   accountId: string,
   ruleId: string,
 ): string {
-  return [tenantId, accountId, ruleId].join("\u0000");
+  return tenantScopedKey({ tenantId, accountId }, "rule", ruleId);
 }
 
 export class RuleRevisionConflictError extends Error {
