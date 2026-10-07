@@ -178,6 +178,7 @@ test("registers five normalized read-only mailbox tools", () => {
     [
       "email_account_list",
       "email_account_status",
+      "email_inbox_summary",
       "email_read",
       "email_search",
       "email_thread_read",
@@ -342,4 +343,169 @@ test("email_thread_read accepts provider thread IDs and returns normalized chron
   );
   assert.equal("body" in result.messages[0]!, false);
   assert.equal("providerMetadata" in result.messages[0]!, false);
+});
+
+
+test("email_inbox_summary returns filtered product counts and safe attention metadata", async () => {
+  const { registry, source } = setup();
+
+  source.seedMessage(
+    message({
+      id: "important-promotion",
+      provider: {
+        kind: "gmail",
+        messageId: "gmail-important-promotion",
+      },
+      subject: "Promotion needing reply",
+      receivedAt: "2026-10-07T09:30:00.000Z",
+      classification: {
+        status: "classified",
+        importanceScore: 82,
+        priority: "important",
+        categories: ["promotions"],
+        actionRequired: false,
+        replyRequired: true,
+      },
+      retention: {
+        stage: "archived",
+        policyId: "policy-1",
+        protected: false,
+        protectionReasons: [],
+      },
+    }),
+  );
+  source.seedMessage(
+    message({
+      id: "low-pending",
+      provider: {
+        kind: "gmail",
+        messageId: "gmail-low-pending",
+      },
+      subject: "Low priority cleanup",
+      receivedAt: "2026-10-07T09:00:00.000Z",
+      classification: {
+        status: "classified",
+        importanceScore: 12,
+        priority: "very_low",
+        categories: ["promotions"],
+      },
+      retention: {
+        stage: "pending_delete",
+        protected: false,
+        protectionReasons: [],
+      },
+    }),
+  );
+  source.seedMessage(
+    message({
+      id: "outside-window",
+      provider: {
+        kind: "gmail",
+        messageId: "gmail-outside-window",
+      },
+      subject: "Old critical",
+      receivedAt: "2026-10-01T09:00:00.000Z",
+      classification: {
+        status: "classified",
+        importanceScore: 100,
+        priority: "critical",
+        categories: ["work"],
+        actionRequired: true,
+      },
+    }),
+  );
+
+  const result = (await registry.call(
+    "email_inbox_summary",
+    {
+      accountId: "account-1",
+      receivedFrom: "2026-10-07T09:00:00.000Z",
+      receivedTo: "2026-10-07T10:30:00.000Z",
+      providers: ["gmail"],
+      attentionLimit: 5,
+    },
+    principal(),
+    "summary-request-1",
+  )) as {
+    total: number;
+    counts: Record<string, number>;
+    attentionCount: number;
+    attentionMessages: Array<Record<string, unknown>>;
+  };
+
+  assert.equal(result.total, 3);
+  assert.deepEqual(result.counts, {
+    Critical: 1,
+    Important: 1,
+    Normal: 0,
+    "Low Priority": 1,
+    Promotions: 2,
+    "Auto Archived": 1,
+    "Pending Delete": 1,
+  });
+  assert.equal(result.attentionCount, 2);
+  assert.deepEqual(
+    result.attentionMessages.map((entry) => entry.id),
+    ["message-1", "important-promotion"],
+  );
+  for (const entry of result.attentionMessages) {
+    assert.equal("body" in entry, false);
+    assert.equal("snippet" in entry, false);
+    assert.equal("headers" in entry, false);
+    assert.equal("providerMetadata" in entry, false);
+  }
+});
+
+test("email_inbox_summary applies category filters before counts and validates time windows", async () => {
+  const { registry, source } = setup();
+  source.seedMessage(
+    message({
+      id: "promo-only",
+      provider: {
+        kind: "gmail",
+        messageId: "gmail-promo-only",
+      },
+      subject: "Sale",
+      receivedAt: "2026-10-07T09:00:00.000Z",
+      classification: {
+        status: "classified",
+        importanceScore: 22,
+        priority: "low",
+        categories: ["promotion"],
+      },
+    }),
+  );
+
+  const result = (await registry.call(
+    "email_inbox_summary",
+    {
+      accountId: "account-1",
+      categories: ["PROMOTION"],
+    },
+    principal(),
+    "summary-request-2",
+  )) as {
+    total: number;
+    counts: Record<string, number>;
+  };
+
+  assert.equal(result.total, 1);
+  assert.equal(result.counts.Promotions, 1);
+  assert.equal(result.counts["Low Priority"], 1);
+  assert.equal(result.counts.Critical, 0);
+
+  await assert.rejects(
+    () =>
+      registry.call(
+        "email_inbox_summary",
+        {
+          accountId: "account-1",
+          receivedFrom: "2026-10-08T00:00:00.000Z",
+          receivedTo: "2026-10-07T00:00:00.000Z",
+        },
+        principal(),
+        "summary-request-3",
+      ),
+    /receivedFrom must be before or equal to receivedTo/,
+  );
 });
