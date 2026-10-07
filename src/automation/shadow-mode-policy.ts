@@ -5,6 +5,9 @@ import type {
 import type {
   AutomationEntitlementResolver,
 } from "../billing/pro-trial.js";
+import type {
+  CleanupConversionTracker,
+} from "../billing/cleanup-conversion.js";
 import type { CanonicalMessage } from "../domain/email-model.js";
 import {
   MailboxPolicyEngine,
@@ -50,11 +53,14 @@ export class ShadowModePolicyCoordinator {
     private readonly now: () => Date = () => new Date(),
     private readonly audit?: ExplainabilityAuditRecorder,
     private readonly entitlements?: AutomationEntitlementResolver,
+    private readonly cleanupConversion?: CleanupConversionTracker,
   ) {}
 
   async evaluate(
     input: PolicyEngineInput,
   ): Promise<ShadowPolicyEvaluation> {
+    const candidateDecision =
+      this.policy.evaluate(input);
     const effectiveCapabilities =
       this.entitlements
         ? await this.entitlements.resolvePlanCapabilities(
@@ -67,9 +73,27 @@ export class ShadowModePolicyCoordinator {
       ...input,
       planCapabilities: effectiveCapabilities,
     };
-    const decision = this.policy.evaluate(
-      effectiveInput,
-    );
+    const decision = this.entitlements
+      ? this.policy.evaluate(effectiveInput)
+      : candidateDecision;
+
+    const candidateAction =
+      candidateDecision.plan?.action.type;
+    const effectiveAction =
+      decision.plan?.action.type;
+    if (
+      this.cleanupConversion &&
+      (candidateAction === "archive" ||
+        candidateAction === "trash") &&
+      effectiveAction !== "archive" &&
+      effectiveAction !== "trash"
+    ) {
+      await this.cleanupConversion.record(
+        input.message,
+        candidateAction,
+        this.now(),
+      );
+    }
     const state = await this.shadow.getState(
       input.message.tenantId,
       input.message.accountId,
