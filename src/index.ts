@@ -97,3 +97,6 @@ export * from "./audit/audit-sanitizer.js";
 export * from "./audit/audit-store.js";
 export * from "./audit/audit-recorder.js";
 export * from "./dashboard/action-audit-dashboard.js";
+export * from "./dashboard/inbox-dashboard-types.js";
+export * from "./dashboard/inbox-dashboard-store.js";
+export * from "./dashboard/inbox-dashboard-service.js";
