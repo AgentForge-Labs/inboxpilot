@@ -119,3 +119,5 @@ export * from "./mcp/hosted/email-read-hosted-tools.js";
 
 export * from "./mcp/hosted/email-automation-hosted-tools.js";
 export * from "./mcp/hosted/email-control-hosted-tools.js";
+
+export * from "./automation/background-workers.js";
