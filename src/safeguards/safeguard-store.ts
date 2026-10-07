@@ -1,3 +1,4 @@
+import { tenantScopedKey } from "../security/tenant-boundary.js";
 import type {
   DangerousSafeguardOverride,
   SafeguardOverrideAuditEvent,
@@ -5,7 +6,7 @@ import type {
 } from "./safeguard-types.js";
 
 function scopeKey(tenantId: string, accountId: string): string {
-  return tenantId + "\u0000" + accountId;
+  return tenantScopedKey({ tenantId, accountId }, "safeguard_scope");
 }
 
 export class InMemorySafeguardOverrideStore

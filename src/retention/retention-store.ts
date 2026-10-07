@@ -1,3 +1,4 @@
+import { tenantScopedKey } from "../security/tenant-boundary.js";
 import type {
   CanonicalMessage,
   RetentionState,
@@ -14,7 +15,7 @@ function messageKey(
   accountId: string,
   providerMessageId: string,
 ): string {
-  return [tenantId, accountId, providerMessageId].join("\u0000");
+  return tenantScopedKey({ tenantId, accountId }, "retention_message", providerMessageId);
 }
 
 export class RetentionJobConflictError extends Error {
