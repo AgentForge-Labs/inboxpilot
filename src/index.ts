@@ -123,3 +123,4 @@ export * from "./mcp/hosted/email-control-hosted-tools.js";
 export * from "./automation/background-workers.js";
 export * from "./security/tenant-boundary.js";
 export * from "./classifier/untrusted-email-content.js";
+export * from "./privacy/privacy-retention.js";
