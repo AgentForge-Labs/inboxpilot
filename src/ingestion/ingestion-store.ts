@@ -228,6 +228,70 @@ export class InMemoryIngestionRepository implements IngestionRepository {
       providerKey(tenantId, accountId, provider, providerMessageId),
     );
   }
+
+  async exportAccountData(
+    tenantId: string,
+    accountId: string,
+  ): Promise<CanonicalMessage[]> {
+    return [...this.messages.values()]
+      .filter(
+        (message) =>
+          message.tenantId === tenantId &&
+          message.accountId === accountId,
+      )
+      .map((message) => structuredClone(message));
+  }
+
+  async deleteAccountData(
+    tenantId: string,
+    accountId: string,
+  ): Promise<number> {
+    const prefix = tenantId + "\u0000" + accountId + "\u0000";
+    let deleted = 0;
+
+    for (const [key, message] of this.messages) {
+      if (
+        message.tenantId !== tenantId ||
+        message.accountId !== accountId
+      ) {
+        continue;
+      }
+      this.messages.delete(key);
+      this.fingerprints.delete(key);
+      this.providerIndex.delete(
+        providerKey(
+          tenantId,
+          accountId,
+          message.provider.kind,
+          message.provider.messageId,
+        ),
+      );
+      deleted += 1;
+    }
+
+    for (const key of [...this.providerIndex.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.providerIndex.delete(key);
+      }
+    }
+    for (const key of [...this.fingerprints.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.fingerprints.delete(key);
+      }
+    }
+    for (const key of [...this.cursors.keys()]) {
+      if (key.startsWith(prefix)) {
+        this.cursors.delete(key);
+      }
+    }
+    for (const key of [...this.deletedProviderIds]) {
+      if (key.startsWith(prefix)) {
+        this.deletedProviderIds.delete(key);
+      }
+    }
+
+    return deleted;
+  }
 }
 
 export class InMemoryIngestionSignalStore implements IngestionSignalStore {
