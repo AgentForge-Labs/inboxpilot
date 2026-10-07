@@ -33,8 +33,44 @@ export interface CustomerUsageQuery {
   endExclusive: string;
 }
 
+
+export interface CustomerUsageIdentity {
+  tenantId: string;
+  accountId: string;
+  provider: ProviderKind;
+  providerMessageId: string;
+}
+
+export interface CustomerUsageReservationLimits {
+  day: {
+    start: string;
+    endExclusive: string;
+    limit: number;
+  };
+  month: {
+    start: string;
+    endExclusive: string;
+    limit: number;
+  };
+}
+
+export interface CustomerUsageReservationResult {
+  status:
+    | "reserved"
+    | "duplicate"
+    | "daily_limit"
+    | "monthly_limit";
+  dayProcessed: number;
+  monthProcessed: number;
+}
+
 export interface CustomerUsageStore {
   recordUnique(event: CustomerUsageEvent): Promise<boolean>;
+  hasUnique(identity: CustomerUsageIdentity): Promise<boolean>;
+  reserveUniqueWithinLimits(
+    event: CustomerUsageEvent,
+    limits: CustomerUsageReservationLimits,
+  ): Promise<CustomerUsageReservationResult>;
   count(query: CustomerUsageQuery): Promise<number>;
   list(query: CustomerUsageQuery): Promise<CustomerUsageEvent[]>;
   deleteAccountData(
@@ -73,13 +109,19 @@ function iso(value: string | Date, field: string): string {
   return date.toISOString();
 }
 
-function eventKey(event: CustomerUsageEvent): string {
+function usageIdentityKey(
+  identity: CustomerUsageIdentity,
+): string {
   return [
-    event.tenantId,
-    event.accountId,
-    event.provider,
-    event.providerMessageId,
+    identity.tenantId,
+    identity.accountId,
+    identity.provider,
+    identity.providerMessageId,
   ].join("\u0000");
+}
+
+function eventKey(event: CustomerUsageEvent): string {
+  return usageIdentityKey(event);
 }
 
 function inRange(
@@ -139,6 +181,32 @@ export function utcMonthPeriod(
   };
 }
 
+function normalizedIdentity(
+  identity: CustomerUsageIdentity,
+): CustomerUsageIdentity {
+  return {
+    tenantId: requireId(identity.tenantId, "tenantId"),
+    accountId: requireId(identity.accountId, "accountId"),
+    provider: identity.provider,
+    providerMessageId: requireId(
+      identity.providerMessageId,
+      "providerMessageId",
+    ),
+  };
+}
+
+function positiveLimit(
+  value: number,
+  field: string,
+): number {
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new RangeError(
+      field + " must be a positive safe integer",
+    );
+  }
+  return value;
+}
+
 export class InMemoryCustomerUsageStore
   implements CustomerUsageStore
 {
@@ -168,6 +236,114 @@ export class InMemoryCustomerUsageStore
     if (this.events.has(key)) return false;
     this.events.set(key, normalized);
     return true;
+  }
+
+  async hasUnique(
+    identity: CustomerUsageIdentity,
+  ): Promise<boolean> {
+    return this.events.has(
+      usageIdentityKey(
+        normalizedIdentity(identity),
+      ),
+    );
+  }
+
+  async reserveUniqueWithinLimits(
+    event: CustomerUsageEvent,
+    limits: CustomerUsageReservationLimits,
+  ): Promise<CustomerUsageReservationResult> {
+    const normalized: CustomerUsageEvent = {
+      ...normalizedIdentity(event),
+      canonicalMessageId: requireId(
+        event.canonicalMessageId,
+        "canonicalMessageId",
+      ),
+      processedAt: iso(
+        event.processedAt,
+        "processedAt",
+      ),
+    };
+    const key = eventKey(normalized);
+    const dayStart = iso(
+      limits.day.start,
+      "limits.day.start",
+    );
+    const dayEnd = iso(
+      limits.day.endExclusive,
+      "limits.day.endExclusive",
+    );
+    const monthStart = iso(
+      limits.month.start,
+      "limits.month.start",
+    );
+    const monthEnd = iso(
+      limits.month.endExclusive,
+      "limits.month.endExclusive",
+    );
+    const dayLimit = positiveLimit(
+      limits.day.limit,
+      "limits.day.limit",
+    );
+    const monthLimit = positiveLimit(
+      limits.month.limit,
+      "limits.month.limit",
+    );
+    if (
+      dayStart >= dayEnd ||
+      monthStart >= monthEnd
+    ) {
+      throw new RangeError(
+        "usage reservation periods must have a positive duration",
+      );
+    }
+
+    const scoped = [...this.events.values()].filter(
+      (current) =>
+        current.tenantId === normalized.tenantId,
+    );
+    const dayProcessed = scoped.filter((current) =>
+      inRange(
+        current.processedAt,
+        dayStart,
+        dayEnd,
+      ),
+    ).length;
+    const monthProcessed = scoped.filter((current) =>
+      inRange(
+        current.processedAt,
+        monthStart,
+        monthEnd,
+      ),
+    ).length;
+
+    if (this.events.has(key)) {
+      return {
+        status: "duplicate",
+        dayProcessed,
+        monthProcessed,
+      };
+    }
+    if (dayProcessed >= dayLimit) {
+      return {
+        status: "daily_limit",
+        dayProcessed,
+        monthProcessed,
+      };
+    }
+    if (monthProcessed >= monthLimit) {
+      return {
+        status: "monthly_limit",
+        dayProcessed,
+        monthProcessed,
+      };
+    }
+
+    this.events.set(key, normalized);
+    return {
+      status: "reserved",
+      dayProcessed: dayProcessed + 1,
+      monthProcessed: monthProcessed + 1,
+    };
   }
 
   async count(
