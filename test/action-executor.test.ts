@@ -472,6 +472,10 @@ test("idempotent action records execution then deduplication without a second pr
     metrics.map((event) => event.status),
     ["succeeded", "deduplicated"],
   );
+  assert.deepEqual(
+    metrics.map((event) => event.source),
+    ["policy_engine", "policy_engine"],
+  );
   assert.equal(
     JSON.stringify(metrics).includes("provider-message-1"),
     false,

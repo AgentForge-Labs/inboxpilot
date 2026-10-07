@@ -325,6 +325,7 @@ export class ProviderSafeActionExecutor {
       accountId: plan.accountId,
       provider: plan.provider,
       action: plan.action.type,
+      source: plan.source,
       status,
       attempt,
       value: 1,
