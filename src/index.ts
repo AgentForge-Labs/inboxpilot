@@ -127,3 +127,4 @@ export * from "./classifier/attachments/attachment-types.js";
 export * from "./classifier/attachments/attachment-policy.js";
 export * from "./classifier/attachments/attachment-audit-store.js";
 export * from "./classifier/attachments/attachment-enricher.js";
+export * from "./observability/operational-telemetry.js";

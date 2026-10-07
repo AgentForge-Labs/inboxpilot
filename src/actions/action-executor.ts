@@ -18,6 +18,9 @@ import type {
   ActionExecutionStore,
   MutationRecord,
 } from "./action-store.js";
+import type {
+  OperationalTelemetry,
+} from "../observability/operational-telemetry.js";
 import {
   classifyMutationError,
   isRetrySafeMutation,
@@ -98,6 +101,8 @@ export interface ActionExecutorOptions {
   retryDelayMs?: number;
   sleep?: (ms: number) => Promise<void>;
   auditRecorder?: ActionExplainabilityRecorder;
+  operationalTelemetry?: OperationalTelemetry;
+  now?: () => Date;
 }
 
 const CAPABILITY_BY_ACTION: Readonly<
@@ -291,6 +296,8 @@ export class ProviderSafeActionExecutor {
   private readonly retryDelayMs: number;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly auditRecorder: ActionExplainabilityRecorder | undefined;
+  private readonly operationalTelemetry: OperationalTelemetry | undefined;
+  private readonly now: () => Date;
 
   constructor(
     private readonly resolver: ProviderAdapterResolver,
@@ -303,6 +310,26 @@ export class ProviderSafeActionExecutor {
       options.sleep ??
       ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.auditRecorder = options.auditRecorder;
+    this.operationalTelemetry = options.operationalTelemetry;
+    this.now = options.now ?? (() => new Date());
+  }
+
+  private async recordActionMetric(
+    plan: MailboxActionPlan,
+    status: "succeeded" | "deduplicated" | "retrying" | "failed",
+    attempt: number,
+  ): Promise<void> {
+    await this.operationalTelemetry?.record({
+      metric: "action_result",
+      tenantId: plan.tenantId,
+      accountId: plan.accountId,
+      provider: plan.provider,
+      action: plan.action.type,
+      status,
+      attempt,
+      value: 1,
+      timestamp: this.now().toISOString(),
+    });
   }
 
   async execute(
@@ -347,6 +374,11 @@ export class ProviderSafeActionExecutor {
           context,
           result,
           "deduplicated",
+        );
+        await this.recordActionMetric(
+          plan,
+          "deduplicated",
+          existing.attemptCount,
         );
         return result;
       }
@@ -436,6 +468,11 @@ export class ProviderSafeActionExecutor {
           "succeeded",
           completedAt,
         );
+        await this.recordActionMetric(
+          plan,
+          "succeeded",
+          attempt,
+        );
         return result;
       } catch (error) {
         const failure = classifyMutationError(error);
@@ -460,6 +497,11 @@ export class ProviderSafeActionExecutor {
             errorCode: failure.code,
             errorCategory: failure.category,
           });
+          await this.recordActionMetric(
+            plan,
+            "retrying",
+            attempt,
+          );
           if (this.retryDelayMs > 0) {
             await this.sleep(this.retryDelayMs * attempt);
           }
@@ -496,6 +538,11 @@ export class ProviderSafeActionExecutor {
             message: failure.message,
           },
           completedAt,
+        );
+        await this.recordActionMetric(
+          plan,
+          "failed",
+          attempt,
         );
         throw error;
       }
