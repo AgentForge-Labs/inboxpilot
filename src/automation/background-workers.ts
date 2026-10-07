@@ -18,6 +18,9 @@ import type {
   RetentionJobStore,
   RetentionRunResult,
 } from "../retention/retention-types.js";
+import type {
+  OperationalTelemetry,
+} from "../observability/operational-telemetry.js";
 import {
   tenantScopedKey,
   type TenantAccountScope,
@@ -120,6 +123,7 @@ export interface BackgroundAutomationSupervisorOptions {
   retryBaseDelayMs?: number;
   retryMaxDelayMs?: number;
   claimTimeoutMs?: number;
+  telemetry?: OperationalTelemetry;
 }
 
 export interface BackgroundAutomationEnqueueInput {
@@ -472,6 +476,7 @@ export class BackgroundAutomationSupervisor {
   private startedAt: string | undefined;
   private stoppedAt: string | undefined;
   private lastCycleAt: string | undefined;
+  private readonly operationalTelemetry: OperationalTelemetry | undefined;
 
   constructor(
     private readonly queue: BackgroundAutomationQueue,
@@ -503,6 +508,7 @@ export class BackgroundAutomationSupervisor {
       1_000,
       options.claimTimeoutMs ?? 5 * 60_000,
     );
+    this.operationalTelemetry = options.telemetry;
 
     for (const kind of BACKGROUND_AUTOMATION_WORKERS) {
       if (typeof handlers[kind] !== "function") {
@@ -642,6 +648,20 @@ export class BackgroundAutomationSupervisor {
           errorText,
           exhausted,
         );
+        await this.operationalTelemetry?.record({
+          metric: exhausted
+            ? "worker_dead_letter"
+            : "worker_retry",
+          tenantId: job.tenantId,
+          accountId: job.accountId,
+          worker: kind,
+          status: exhausted
+            ? "dead_lettered"
+            : "retrying",
+          attempt: nextAttempt,
+          value: 1,
+          timestamp: failureAt.toISOString(),
+        });
       }
     }
   }
@@ -655,8 +675,9 @@ export class BackgroundAutomationSupervisor {
       BACKGROUND_AUTOMATION_WORKERS.map((kind) =>
         this.runWorkerOnce(kind),
       ),
-    ).then(() => {
+    ).then(async () => {
       this.lastCycleAt = this.now().toISOString();
+      await this.emitQueueMetrics();
     });
     this.cycleInFlight = cycle.finally(() => {
       this.cycleInFlight = undefined;
@@ -685,6 +706,38 @@ export class BackgroundAutomationSupervisor {
       await this.cycleInFlight;
     }
     this.stoppedAt = this.now().toISOString();
+  }
+
+  private async emitQueueMetrics(): Promise<void> {
+    if (!this.operationalTelemetry) return;
+    const stats = await this.queue.stats();
+    const timestamp = this.now().toISOString();
+    for (const kind of BACKGROUND_AUTOMATION_WORKERS) {
+      await this.operationalTelemetry.record({
+        metric: "queue_depth",
+        worker: kind,
+        status: "ok",
+        value: stats.queued[kind],
+        timestamp,
+      });
+      await this.operationalTelemetry.record({
+        metric: "queue_in_flight",
+        worker: kind,
+        status: "ok",
+        value: stats.inFlight[kind],
+        timestamp,
+      });
+      await this.operationalTelemetry.record({
+        metric: "queue_dead_letters",
+        worker: kind,
+        status:
+          stats.deadLetters[kind] > 0
+            ? "dead_lettered"
+            : "ok",
+        value: stats.deadLetters[kind],
+        timestamp,
+      });
+    }
   }
 
   async health(): Promise<BackgroundAutomationHealth> {

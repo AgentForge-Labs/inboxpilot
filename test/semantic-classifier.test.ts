@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   CLASSIFIER_CONTRACT_VERSION,
   InMemorySemanticCostTelemetry,
+  InMemoryOperationalTelemetry,
   InMemorySemanticQuotaLedger,
   SemanticClassifier,
   buildSemanticClassifierPrompt,
@@ -671,3 +672,92 @@ test("untrusted prompt sanitization strips bidi and unsafe control obfuscation",
       ),
   );
 });
+
+test("semantic classifier records bounded latency and classifier version without prompt content", async () => {
+  const client = new QueueModelClient();
+  client.queue.push(
+    response(
+      semanticOutput(0.93, {
+        modelVersion: "classifier-observed-v7",
+      }),
+      100,
+      20,
+      "ops-1",
+    ),
+  );
+  const operational =
+    new InMemoryOperationalTelemetry();
+  let nowMs = Date.parse(
+    "2026-10-07T12:00:00.000Z",
+  );
+  const classifierInstance =
+    new SemanticClassifier(
+      client,
+      new InMemorySemanticCostTelemetry(),
+      new InMemorySemanticQuotaLedger(),
+      {
+        primaryModel: "primary-model",
+        confidenceThreshold: 0.8,
+        maxAttemptsPerModel: 1,
+        maxBodyChars: 2000,
+        maxThreadContextChars: 3000,
+      },
+      undefined,
+      operational,
+      () => {
+        const value = nowMs;
+        nowMs += 25;
+        return value;
+      },
+    );
+
+  const result = await classifierInstance.classify({
+    message: message("ops-observed"),
+    history: weakHistory,
+  });
+
+  assert.equal(result.route, "semantic");
+  const latency = operational.list({
+    metric: "classify_latency_ms",
+  });
+  const versions = operational.list({
+    metric: "classifier_version",
+  });
+  assert.equal(latency.length, 1);
+  assert.equal(latency[0]?.value, 25);
+  assert.equal(
+    versions[0]?.classifierVersion,
+    "classifier-observed-v7",
+  );
+  const serialized = JSON.stringify(
+    operational.events,
+  );
+  assert.equal(
+    serialized.includes(
+      "A general email that needs semantic interpretation.",
+    ),
+    false,
+  );
+  assert.equal(
+    serialized.includes("ops-1"),
+    false,
+  );
+});
+
+test("operational telemetry rejects arbitrary content-bearing fields", async () => {
+  const operational =
+    new InMemoryOperationalTelemetry();
+  await assert.rejects(
+    () =>
+      operational.record({
+        metric: "action_result",
+        value: 1,
+        status: "succeeded",
+        timestamp:
+          "2026-10-07T12:00:00.000Z",
+        body: "sensitive email body",
+      } as any),
+    /is not allowed/,
+  );
+});
+

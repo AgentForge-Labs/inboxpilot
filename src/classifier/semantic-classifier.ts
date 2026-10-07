@@ -22,6 +22,9 @@ import {
   attachmentEnrichmentSummary,
 } from "./attachments/attachment-enricher.js";
 import type {
+  OperationalTelemetry,
+} from "../observability/operational-telemetry.js";
+import type {
   SemanticBatchResult,
   SemanticClassificationResult,
   SemanticClassifierConfig,
@@ -181,6 +184,8 @@ export class SemanticClassifier {
     private readonly quota: SemanticQuotaLedger,
     config: SemanticClassifierConfig,
     private readonly attachmentEnricher?: AttachmentClassificationEnricher,
+    private readonly operationalTelemetry?: OperationalTelemetry,
+    private readonly clockMs: () => number = () => Date.now(),
   ) {
     this.config = resolveConfig(config);
   }
@@ -188,23 +193,31 @@ export class SemanticClassifier {
   async classify(
     input: SemanticClassifyInput,
   ): Promise<SemanticClassificationResult> {
+    const startedAt = this.clockMs();
     const candidate = await this.prepareCandidate(input);
-    if (!candidate.deterministic.needsLlm) {
-      return {
-        route: "deterministic",
-        deterministic: candidate.deterministic,
-        needsReview: false,
-        quotaCharged: candidate.quotaCharged,
-        attempts: 0,
-      };
-    }
+    const result: SemanticClassificationResult =
+      !candidate.deterministic.needsLlm
+        ? {
+            route: "deterministic",
+            deterministic: candidate.deterministic,
+            needsReview: false,
+            quotaCharged: candidate.quotaCharged,
+            attempts: 0,
+          }
+        : await this.classifyCandidate(candidate);
 
-    return this.classifyCandidate(candidate);
+    await this.recordOperationalClassification(
+      input.message,
+      result,
+      Math.max(0, this.clockMs() - startedAt),
+    );
+    return result;
   }
 
   async classifyMany(
     inputs: readonly SemanticClassifyInput[],
   ): Promise<SemanticBatchResult> {
+    const startedAt = this.clockMs();
     const prepared = await Promise.all(
       inputs.map((input) => this.prepareCandidate(input)),
     );
@@ -308,18 +321,73 @@ export class SemanticClassifier {
       }
     }
 
+    const populated = results.map((result) => {
+      if (!result) {
+        throw new Error(
+          "Semantic batch result was not populated",
+        );
+      }
+      return result;
+    });
+    const latencyMs = Math.max(
+      0,
+      this.clockMs() - startedAt,
+    );
+    await Promise.all(
+      populated.map((result, index) =>
+        this.recordOperationalClassification(
+          inputs[index]!.message,
+          result,
+          latencyMs,
+        ),
+      ),
+    );
+
     return {
-      results: results.map((result) => {
-        if (!result) {
-          throw new Error(
-            "Semantic batch result was not populated",
-          );
-        }
-        return result;
-      }),
+      results: populated,
       semanticCandidates: semanticIndexes.length,
       batchedRequests,
     };
+  }
+
+  private async recordOperationalClassification(
+    message: CanonicalMessage,
+    result: SemanticClassificationResult,
+    latencyMs: number,
+  ): Promise<void> {
+    if (!this.operationalTelemetry) return;
+    const classifierVersion =
+      result.semantic?.modelVersion ??
+      result.model ??
+      "deterministic";
+    const status =
+      result.classification?.status === "failed"
+        ? "failed"
+        : "succeeded";
+    const timestamp = new Date(
+      this.clockMs(),
+    ).toISOString();
+
+    await this.operationalTelemetry.record({
+      metric: "classify_latency_ms",
+      tenantId: message.tenantId,
+      accountId: message.accountId,
+      provider: message.provider.kind,
+      classifierVersion,
+      status,
+      value: latencyMs,
+      timestamp,
+    });
+    await this.operationalTelemetry.record({
+      metric: "classifier_version",
+      tenantId: message.tenantId,
+      accountId: message.accountId,
+      provider: message.provider.kind,
+      classifierVersion,
+      status,
+      value: 1,
+      timestamp,
+    });
   }
 
   private async prepareCandidate(
