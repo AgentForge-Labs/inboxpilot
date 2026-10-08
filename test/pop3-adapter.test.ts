@@ -59,7 +59,7 @@ test("POP3 is discoverable as receive-only without pretending mailbox mutation s
   assert.equal(adapter.kind, "pop3");
 
   const common = discoverCapabilities(adapter);
-  assert.deepEqual(common.supported, []);
+  assert.deepEqual(common.supported, ["syncChanges"]);
   for (const capability of [
     "listFolders",
     "listLabels",
