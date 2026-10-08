@@ -61,3 +61,48 @@ export class Pop3CapabilityError extends Error {
     this.name = "Pop3CapabilityError";
   }
 }
+
+
+export type Pop3AuthMode = "oauth2" | "app_password" | "password";
+export type Pop3TlsMode = "implicit" | "starttls";
+
+export interface Pop3SecretRecord {
+  username: string;
+  authMode: Pop3AuthMode;
+  accessToken?: string;
+  secret?: string;
+}
+
+export interface Pop3CredentialStore {
+  get(
+    context: ProviderConnectionContext,
+  ): Promise<Pop3SecretRecord | null>;
+}
+
+export interface Pop3ConnectionConfig {
+  host: string;
+  port?: number;
+  tlsMode: Pop3TlsMode;
+  allowPasswordAuth?: boolean;
+  rejectUnauthorized?: boolean;
+  connectTimeoutMs?: number;
+  commandTimeoutMs?: number;
+}
+
+export interface ResolvedPop3ConnectionConfig {
+  host: string;
+  port: number;
+  tlsMode: Pop3TlsMode;
+  allowPasswordAuth: boolean;
+  rejectUnauthorized: boolean;
+  connectTimeoutMs: number;
+  commandTimeoutMs: number;
+}
+
+export interface Pop3ConnectionTestResult {
+  ok: true;
+  accountExternalId: string;
+  tlsMode: Pop3TlsMode;
+  authMode: Pop3AuthMode;
+  serverCapabilities: readonly string[];
+}
