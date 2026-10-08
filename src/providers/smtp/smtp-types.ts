@@ -94,3 +94,45 @@ export interface ResolvedSmtpConnectionConfig {
   commandTimeoutMs: number;
   ehloName: string;
 }
+
+
+export type SmtpConnectionCheckStatus =
+  | "passed"
+  | "failed"
+  | "not_run";
+
+export type SmtpCertificateStatus =
+  | "validated"
+  | "not_validated"
+  | "validation_disabled"
+  | "not_applicable";
+
+export interface SmtpConnectionTestChecks {
+  connect: SmtpConnectionCheckStatus;
+  tls: SmtpConnectionCheckStatus;
+  auth: SmtpConnectionCheckStatus;
+}
+
+export interface SmtpConnectionTestError {
+  code: string;
+  message: string;
+  action: string;
+}
+
+export interface SmtpConnectionTestResult {
+  ok: boolean;
+  host: string;
+  port: number;
+  tlsMode: SmtpTlsMode;
+  encrypted: boolean;
+  certificateStatus: SmtpCertificateStatus;
+  authMethod: SmtpAuthMethod;
+  checks: SmtpConnectionTestChecks;
+  advertisedEhloCapabilities: readonly string[];
+  advertisedAuthMechanisms: readonly string[];
+  smtpUtf8: boolean;
+  maxMessageBytes?: number;
+  accountExternalId?: string;
+  sentTestMessage: false;
+  error?: SmtpConnectionTestError;
+}
