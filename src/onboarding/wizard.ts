@@ -23,7 +23,7 @@ export const ONBOARDING_ENTRY_OPTIONS: readonly OnboardingEntryOption[] =
       kind: "generic_email",
       title: "Connect another email",
       description:
-        "Detect your provider automatically before showing advanced mail-server fields.",
+        "Detect automatically or configure IMAP/POP3 receive with SMTP send, receive-only, or send-only.",
     },
     {
       kind: "local_mailbox",

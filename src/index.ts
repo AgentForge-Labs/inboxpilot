@@ -154,3 +154,5 @@ export * from "./providers/provider-test-sandbox.js";
 export * from "./outbound/outbound-transport.js";
 export * from "./providers/smtp/smtp-types.js";
 export * from "./providers/smtp/smtp-client.js";
+
+export * from "./onboarding/custom-email-wizard.js";
