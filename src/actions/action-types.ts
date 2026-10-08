@@ -170,6 +170,7 @@ export function assertExplicitActionPlan(input: unknown): MailboxActionPlan {
     "microsoft_graph",
     "imap",
     "jmap",
+    "pop3",
     "maildir",
     "mbox",
     "other",

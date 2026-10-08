@@ -5,6 +5,7 @@ export type ProviderKind =
   | "microsoft_graph"
   | "imap"
   | "jmap"
+  | "pop3"
   | "maildir"
   | "mbox"
   | "other";
