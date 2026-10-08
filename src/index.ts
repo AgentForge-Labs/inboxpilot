@@ -150,3 +150,6 @@ export * from "./dashboard/usage-plan-dashboard.js";
 export * from "./dashboard/pop3-server-delete-dashboard.js";
 export * from "./providers/provider-safety-matrix.js";
 export * from "./providers/provider-test-sandbox.js";
+
+export * from "./outbound/outbound-transport.js";
+export * from "./providers/smtp/smtp-types.js";
