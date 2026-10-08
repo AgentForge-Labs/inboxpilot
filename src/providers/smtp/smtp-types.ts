@@ -13,7 +13,7 @@ export type SmtpAuthMethod =
 export type SmtpTlsMode =
   Extract<
     OutboundTlsMode,
-    "starttls" | "implicit_tls"
+    "none" | "starttls" | "implicit_tls"
   >;
 
 export interface SmtpAccountCapabilities
@@ -64,4 +64,33 @@ export function smtpCapabilities(
       ? { maxMessageBytes }
       : {}),
   });
+}
+
+export interface SmtpCredentials {
+  username: string;
+  authMethod: SmtpAuthMethod;
+  secret?: string;
+  accessToken?: string;
+}
+
+export interface SmtpConnectionConfig {
+  host: string;
+  port?: number;
+  tlsMode: SmtpTlsMode;
+  rejectUnauthorized?: boolean;
+  allowPlaintextAuth?: boolean;
+  connectTimeoutMs?: number;
+  commandTimeoutMs?: number;
+  ehloName?: string;
+}
+
+export interface ResolvedSmtpConnectionConfig {
+  host: string;
+  port: number;
+  tlsMode: SmtpTlsMode;
+  rejectUnauthorized: boolean;
+  allowPlaintextAuth: boolean;
+  connectTimeoutMs: number;
+  commandTimeoutMs: number;
+  ehloName: string;
 }
