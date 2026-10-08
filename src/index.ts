@@ -23,6 +23,8 @@ export * from "./providers/jmap/jmap-types.js";
 export * from "./providers/jmap/jmap-client.js";
 export * from "./providers/jmap/jmap-normalizer.js";
 export * from "./providers/jmap/jmap-adapter.js";
+export * from "./providers/pop3/pop3-types.js";
+export * from "./providers/pop3/pop3-adapter.js";
 export * from "./providers/local/local-types.js";
 export * from "./providers/local/local-fs.js";
 export * from "./providers/local/local-normalizer.js";
