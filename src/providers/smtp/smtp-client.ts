@@ -21,6 +21,7 @@ import {
   type SmtpAccountCapabilities,
   type SmtpAuthMethod,
   type SmtpConnectionConfig,
+  type SmtpConnectionTestResult,
   type SmtpCredentials,
 } from "./smtp-types.js";
 
@@ -817,6 +818,60 @@ export class CustomSmtpTransport
     };
   }
 
+  async connectionTestDetails(): Promise<SmtpConnectionTestResult> {
+    await this.ensureConnected();
+    const ehlo = this.ehlo;
+    if (!ehlo) {
+      throw new SmtpConnectionError(
+        "SMTP EHLO discovery is unavailable",
+      );
+    }
+
+    const tlsRequired =
+      this.config.tlsMode !== "none";
+    return {
+      ok: true,
+      host: this.config.host,
+      port: this.config.port,
+      tlsMode: this.config.tlsMode,
+      encrypted:
+        Boolean(this.session?.encrypted),
+      certificateStatus:
+        !tlsRequired
+          ? "not_applicable"
+          : this.config.rejectUnauthorized
+            ? "validated"
+            : "validation_disabled",
+      authMethod:
+        this.credentials.authMethod,
+      checks: {
+        connect: "passed",
+        tls: tlsRequired
+          ? "passed"
+          : "not_run",
+        auth: "passed",
+      },
+      advertisedEhloCapabilities:
+        [...ehlo.capabilities].sort(),
+      advertisedAuthMechanisms:
+        [...ehlo.authMechanisms].sort(),
+      smtpUtf8:
+        ehlo.capabilities.has(
+          "SMTPUTF8",
+        ),
+      ...(ehlo.maxMessageBytes !==
+      undefined
+        ? {
+            maxMessageBytes:
+              ehlo.maxMessageBytes,
+          }
+        : {}),
+      accountExternalId:
+        this.credentials.username,
+      sentTestMessage: false,
+    };
+  }
+
   async sendMessage(
     input: OutboundMessageInput,
   ): Promise<OutboundSendResult> {
@@ -1106,4 +1161,164 @@ export function smtpDiagnosticCode(
     return error.code;
   }
   return "SMTP_UNKNOWN_ERROR";
+}
+
+
+function defaultSmtpPort(
+  config: SmtpConnectionConfig,
+): number {
+  return (
+    config.port ??
+    (config.tlsMode === "implicit_tls"
+      ? 465
+      : config.tlsMode === "starttls"
+        ? 587
+        : 25)
+  );
+}
+
+function certificateStatusForFailure(
+  config: SmtpConnectionConfig,
+): SmtpConnectionTestResult["certificateStatus"] {
+  if (config.tlsMode === "none") {
+    return "not_applicable";
+  }
+  return config.rejectUnauthorized === false
+    ? "validation_disabled"
+    : "not_validated";
+}
+
+function connectionTestFailure(
+  config: SmtpConnectionConfig,
+  credentials: SmtpCredentials,
+  error: unknown,
+): SmtpConnectionTestResult {
+  const tlsRequired =
+    config.tlsMode !== "none";
+
+  let checks: SmtpConnectionTestResult["checks"] = {
+    connect: "failed",
+    tls: "not_run",
+    auth: "not_run",
+  };
+  let code = "SMTP_UNKNOWN_ERROR";
+  let message =
+    "SMTP connection test failed.";
+  let action =
+    "Review the SMTP host, port, TLS and authentication settings.";
+
+  if (
+    error instanceof
+    SmtpAuthenticationError
+  ) {
+    code = error.code;
+    message =
+      "SMTP authentication failed.";
+    action =
+      "Check the SMTP username and app password/password, or refresh the OAuth2 token. Also confirm the server supports the selected auth method.";
+    checks = {
+      connect: "passed",
+      tls: tlsRequired
+        ? "passed"
+        : "not_run",
+      auth: "failed",
+    };
+  } else if (
+    error instanceof SmtpTlsError
+  ) {
+    code = error.code;
+    message =
+      "SMTP TLS negotiation failed.";
+    action =
+      "Check the SMTP port and TLS mode, then verify the server certificate and STARTTLS support.";
+    checks = {
+      connect: "passed",
+      tls: "failed",
+      auth: "not_run",
+    };
+  } else if (
+    error instanceof SmtpProtocolError
+  ) {
+    code = error.code;
+    message =
+      "The SMTP server rejected the connection test.";
+    action =
+      "Check the server requirements and EHLO/TLS/auth settings. No test email was sent.";
+    checks = {
+      connect: "passed",
+      tls: tlsRequired
+        ? "passed"
+        : "not_run",
+      auth: "not_run",
+    };
+  } else if (
+    error instanceof SmtpConnectionError
+  ) {
+    code = error.code;
+    message =
+      "Could not connect to the SMTP server.";
+    action =
+      "Check the SMTP hostname/DNS, port, firewall and provider availability.";
+  } else if (
+    error instanceof TypeError ||
+    error instanceof RangeError
+  ) {
+    code = "SMTP_CONFIGURATION_INVALID";
+    message =
+      "The SMTP configuration is invalid.";
+    action =
+      "Review host, port, TLS mode, timeouts and credential fields.";
+  }
+
+  return {
+    ok: false,
+    host: config.host.trim(),
+    port: defaultSmtpPort(config),
+    tlsMode: config.tlsMode,
+    encrypted: false,
+    certificateStatus:
+      certificateStatusForFailure(
+        config,
+      ),
+    authMethod:
+      credentials.authMethod,
+    checks,
+    advertisedEhloCapabilities: [],
+    advertisedAuthMechanisms: [],
+    smtpUtf8: false,
+    sentTestMessage: false,
+    error: {
+      code,
+      message,
+      action,
+    },
+  };
+}
+
+export async function testSmtpConnection(
+  config: SmtpConnectionConfig,
+  credentials: SmtpCredentials,
+  sessionFactory: SmtpSessionFactory =
+    createNodeSmtpSession,
+): Promise<SmtpConnectionTestResult> {
+  let transport:
+    | CustomSmtpTransport
+    | undefined;
+  try {
+    transport =
+      new CustomSmtpTransport(
+        config,
+        credentials,
+        sessionFactory,
+      );
+    return await transport.connectionTestDetails();
+  } catch (error) {
+    return connectionTestFailure(
+      config,
+      credentials,
+      error,
+    );
+  } finally {
+    await transport?.close();
+  }
 }
